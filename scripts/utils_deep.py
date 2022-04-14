@@ -107,11 +107,6 @@ class customizedDataset(ImageFolder):
         tuple_with_path = (original_tuple +  (path,))
         return tuple_with_path
 
-def freeze_layer_weights(layer):
-    for param in layer.parameters():
-        param.requries_grad = False
-    return None
-
 def data_loader(data_root:str,
                 augmentations:transforms    = None,
                 batch_size:int              = 8,
@@ -202,6 +197,29 @@ def candidates(model_name,pretrained = True,):
                                               progress              = False,),
             )
     return picked_models[model_name]
+
+def define_type(model_name):
+    model_type          = dict(
+            alexnet     = 'simple',
+            vgg19       = 'simple',
+            densenet169 = 'simple',
+            inception   = 'inception',
+            mobilenet   = 'simple',
+            resnet18    = 'resnet',
+            resnet50    = 'resnet',
+            )
+    return model_type[model_name]
+
+def hidden_activation_functions(activation_func_name):
+    funcs = dict(relu = nn.ReLU(),
+                 selu = nn.SELU(),
+                 elu = nn.ELU(),
+                 sigmoid = nn.Sigmoid(),
+                 tanh = nn.Tanh(),
+                 linear = None,
+                 leaky_relu = nn.LeakyReLU(),
+                 )
+    return funcs[activation_func_name]
 
 def noise_fuc(x,noise_level = 1):
     """
