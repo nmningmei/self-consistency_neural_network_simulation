@@ -16,7 +16,11 @@ from utils_deep import (dataloader,
 
 
 if __name__ == "__main__":
+<<<<<<< HEAD
     dataset_name = 'CIFAR100'
+=======
+    dataset_name = 'CIFAR10'
+>>>>>>> 0e761d6c4dff6b05ee175c631df0b0771c541ba7
     # image setting
     image_resize = 32
     noise_level_train = 0.
@@ -37,8 +41,12 @@ if __name__ == "__main__":
                                                    transform = transform,
                                                    train_valid_split = [45000,5000],
                                                    )
+<<<<<<< HEAD
     dataloader_test,_ = dataloader(dataset_name = dataset_name,
                                    train = False,
+=======
+    dataloader_test,_ = dataloader(dataset_name = dataset_name,train = False,
+>>>>>>> 0e761d6c4dff6b05ee175c631df0b0771c541ba7
                                    transform = transform,
                                    )
     
