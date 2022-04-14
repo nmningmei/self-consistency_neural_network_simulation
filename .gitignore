@@ -130,7 +130,4 @@ dmypy.json
 
 # data folder
 data/
-<<<<<<< HEAD
 data/*tar.gz
-=======
->>>>>>> 0e761d6c4dff6b05ee175c631df0b0771c541ba7
