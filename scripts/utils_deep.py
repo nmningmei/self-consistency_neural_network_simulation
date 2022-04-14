@@ -5,7 +5,6 @@ Created on Thu Apr 14 13:03:04 2022
 
 @author: nmei
 """
-<<<<<<< HEAD
 from typing import List, Callable, Union, Any, TypeVar, Tuple, List, Optional
 import os,gc
 from glob        import glob
@@ -13,14 +12,14 @@ from tqdm        import tqdm
 from collections import OrderedDict
 import pandas as pd
 import numpy  as np
-=======
 
-import os,gc,torch
->>>>>>> 0e761d6c4dff6b05ee175c631df0b0771c541ba7
+import torch
+from torch          import nn,no_grad
+from torch.utils    import data
+from torch.nn       import functional as F
+from torch          import optim
+from torch.autograd import Variable
 
-from torchvision import datasets
-
-<<<<<<< HEAD
 from torchvision.datasets import ImageFolder
 from torchvision          import transforms,datasets
 from torchvision          import models as Tmodels
@@ -64,21 +63,11 @@ def dataloader(dataset_name:str = 'CIFAR10',
                num_workers:int             = 2,
                shuffle:bool                = True,
                return_path:bool            = False,
-=======
-
-def dataloader(dataset_name:str = 'CIFAR100',
-               root:str = '../data',
-               train:bool = True,
-               transform = None,
-               target_transform = None,
-               download:bool = False,
->>>>>>> 0e761d6c4dff6b05ee175c631df0b0771c541ba7
                ):
     """
     Download the datasets from PyTorch torchvision.datasets
     If no dataset file exists, specific "download=True"
     """
-<<<<<<< HEAD
     unpack1 = dict(root = root,
                    train = train,
                    transform = transform,
@@ -267,22 +256,5 @@ def simple_augmentations(image_resize   = 128,
     return transform_steps
 
 
-=======
-    unpack = dict(root = root,
-                  train = train,
-                  transform = transform,
-                  target_transform = target_transform,
-                  download = download,
-                  )
-    if dataset_name == 'CIFAR100': # subset of CIFAR10
-        return datasets.CIFAR10(**unpack)
-    elif dataset_name == 'CIFAR10':
-        return datasets.CIFAR100(**unpack)
-    
-
-
-
-
->>>>>>> 0e761d6c4dff6b05ee175c631df0b0771c541ba7
 if __name__ == "__main__":
     pass
