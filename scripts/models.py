@@ -378,4 +378,25 @@ class VanillaVAE(BaseVAE):
         z = self.reparameterize(mu, log_var)
         reconstruction = self.decode(z)
         return reconstruction,hidden_representation,z,mu,log_var
-    
+
+class simple_classifier(nn.Module):
+    def __init__(self,
+                 vae_encoder:nn.Module,
+                 in_features:int = 300,
+                 output_units:int = 2,
+                 output_activation:nn.Module = nn.Softmax(dim = -1),
+                 ) -> None:
+        super(simple_classifier,self).__init__()
+        """
+        
+        """
+        
+        torch.manual_seed(12345)
+        self.feature_extractor = vae_encoder
+        self.output_layer = nn.Sequential(nn.Linear(in_features,output_units),
+                                          output_activation,
+                                          )
+    def forward(self,x:Tensor) -> Tuple[Tensor]:
+        hidden_representation,mu,log_var = self.feature_extractor(x)
+        category = self.output_layer(hidden_representation)
+        return hidden_representation,category
