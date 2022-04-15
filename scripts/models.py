@@ -6,7 +6,7 @@ Created on Thu Apr 14 13:52:14 2022
 @author:  AntixK
 
 https://github.com/AntixK/PyTorch-VAE
-
+I didn't know spyder has a quick documentation feature
 """
 import torch
 from torch import functional as F
@@ -24,6 +24,7 @@ from abc import abstractmethod
 Tensor = TypeVar('torch.tensor')
 ###############################################################################
 class BaseVAE(nn.Module):
+    
     
     def __init__(self) -> None:
         super(BaseVAE, self).__init__()
@@ -49,7 +50,6 @@ class BaseVAE(nn.Module):
         pass
 ###############################################################################
 
-
 def create_hidden_layer(
                         layer_type:str,
                         input_units:int,
@@ -63,7 +63,7 @@ def create_hidden_layer(
     
     Inputs
     ---
-    layer_type: str, default = "linear"
+    layer_type: str, default = "linear", well, I want to implement recurrent layers
     input_units: int, in_features of the layer
     output_units: int, out_features of the layer
     output_drop: float, between 0 and 1
@@ -88,6 +88,8 @@ def create_hidden_layer(
                                 latent_layer,
                                 dropout)
         return hidden_layer
+    elif layer_type == 'recurrent':
+        raise NotImplementedError
     else:
         raise NotImplementedError
 ###############################################################################
@@ -105,25 +107,20 @@ class GaussianNoise(nn.Module):
     """
 
     def __init__(self, 
-                 sigma              = 0.1,
-                 device             = 'cpu'):
+                 sigma:float        = 0.1,
+                 device             = 'cpu',
+                 ) -> None:
         super(GaussianNoise,self).__init__()
         self.sigma              = sigma
         self.device             = device
-        # self.noise              = torch.tensor(0.).float().to(self.device)
 
-    def forward(self, x):
+    def forward(self, x:Tensor) -> Tensor:
         with torch.no_grad():
             matrix_size         = x.shape
-            # scale               = self.sigma * x.detach() # make sure the noise is not learnable
-            # sampled_noise       = self.noise.repeat(*x.size()).normal_() * scale.float().to(self.device)
-            # x                   = x.to(self.device) + sampled_noise.to(self.device)
             if self.sigma is not None:
-                # generator       = torch.distributions.normal.Normal(0,self.sigma)
-                # x               = x.to(self.device) + generator.sample(matrix_size).to(self.device)
                 dist            = torch.distributions.multivariate_normal.MultivariateNormal(
-                                                    loc = torch.zeros(matrix_size[1]),
-                                                    covariance_matrix = torch.eye(matrix_size[1]) * self.sigma)
+                                    loc = torch.zeros(matrix_size[1]),
+                                    covariance_matrix = torch.eye(matrix_size[1]) * self.sigma)
                 x               = x.to(self.device) + dist.sample((matrix_size[0],)).to(self.device)
             return x.to(self.device)
 
@@ -136,15 +133,16 @@ class easy_model(nn.Module):
     Inputs
     --------------------
     pretrained_model: nn.Module, pretrained model object
+    in_shape: Tuple, input image dimensions (1,n_channels,height,width)
 
     Outputs
     --------------------
     out: torch.tensor, the pooled CNN features
     """
     def __init__(self,
-                 pretrained_model,
+                 pretrained_model:nn.Module,
                  in_shape = (1,3,128,128),
-                 ):
+                 ) -> None:
         super(easy_model,self).__init__()
         torch.manual_seed(12345)
         self.in_features    = nn.AdaptiveAvgPool2d((1,1))(pretrained_model.features(torch.rand(*in_shape))).shape[1]
@@ -152,7 +150,7 @@ class easy_model(nn.Module):
         # print(f'feature dim = {self.in_features}')
         self.features       = nn.Sequential(pretrained_model.features,
                                             avgpool,)
-    def forward(self,x,):
+    def forward(self,x:Tensor) -> Tensor:
         out                 = torch.squeeze(torch.squeeze(self.features(x),3),2)
         return out
 
@@ -172,8 +170,8 @@ class resnet_model(nn.Module):
     """
 
     def __init__(self,
-                 pretrained_model,
-                 ):
+                 pretrained_model:nn.Module,
+                 ) -> None:
         super(resnet_model,self).__init__()
         torch.manual_seed(12345)
         avgpool             = nn.AdaptiveAvgPool2d((1,1))
@@ -184,7 +182,7 @@ class resnet_model(nn.Module):
         self.features       = nn.Sequential(res_net,
                                             avgpool)
         
-    def forward(self,x):
+    def forward(self,x:Tensor) -> Tensor:
         out                 = torch.squeeze(torch.squeeze(self.features(x),3),2)
         return out
 
@@ -195,9 +193,6 @@ class VanillaVAE(BaseVAE):
                  hidden_units:int               = 300,
                  hidden_activation:nn.Module    = nn.ReLU(),
                  hidden_dropout:float           = 0.,
-                 # latent_units:int               = 256,
-                 # latent_activation:nn.Module    = nn.LeakyReLU(),
-                 # latent_dropout:float           = 0.,
                  in_channels:int                = 3,
                  in_shape:Tuple                 = (1,3,128,128),
                  layer_type:str                 = 'linear',
@@ -208,6 +203,28 @@ class VanillaVAE(BaseVAE):
         """
         Encoder -->|--> mu      | --> z --> Decoder
                    |--> log_var |
+        Every "hidden**" is for making layer `mu` and `log_var`
+        
+        Inputs
+        ---
+        pretrained_model_name: str, the name of the CNN backbone
+        hidden_units:int, dimension of the hidden layer
+        hidden_activation:nn.Module, the nonlinear activation of the hidden layer
+        hidden_dropout:float, between 0 and 1, the dropout rate of the hidden layer
+        in_channels:int, number of channels of the input image
+        in_shape:Tuple, the dimension of the inpu images (1,n_channels, height, width)
+        layer_type:str, type of the hidden layers
+        device:str or torch.device,
+        hidden_dims:List, the list of hidden dimensions of the decoder
+        
+        Outputs
+        ---
+        reconstruction:torch.tensor, reconstructed image
+        hidden_representation: torch.tensor, features extracted by the CNN backbone, and average pooled
+        z: torch.tensor, sampled tensor for the decoder
+        mu: torch.tensor
+        log_var: torch.tensor
+        
         """
         
         torch.manual_seed(12345)
@@ -216,10 +233,7 @@ class VanillaVAE(BaseVAE):
         self.hidden_units                   = hidden_units
         self.hidden_activation              = hidden_activation
         self.hidden_dropout                 = hidden_dropout
-        # self.latent_units                   = latent_units
         self.layer_type                     = layer_type
-        # self.latent_activation              = latent_activation
-        # self.latent_dropout                 = latent_dropout
         self.device                         = device
         self.in_channels                    = in_channels
         self.hidden_dims                    = hidden_dims
@@ -312,7 +326,15 @@ class VanillaVAE(BaseVAE):
                                                 ).to(self.device)
     def encode(self,x:Tensor) -> List[Tensor]:
         """
+        Inputs
+        ---
+        x:torch.tensor
         
+        Outputs
+        ---
+        hidden_representaion:torch.tensor,features extracted by the CNN backbone
+        mu:torch.tensor,connected to hidden representations
+        log_var:torch.tensor,connected to hidden representations
         """
         hidden_representation = self.encoder(x)
         
@@ -323,7 +345,13 @@ class VanillaVAE(BaseVAE):
 
     def decode(self,z:Tensor) -> Tensor:
         """
+        Inputs
+        ---
+        z:torch.tensor, the sampled tensor for the decoder
         
+        Outputs
+        ---
+        output:torch.tensor, the reconsctructed images
         """
         z               = z.view(-1,self.hidden_units,1,1)
         conv_transpose  = self.decoder(z)
@@ -333,6 +361,15 @@ class VanillaVAE(BaseVAE):
     def reparameterize(self,mu:Tensor,log_var:Tensor) -> Tensor:
         """
         sample hidden representation from Q(z | x)
+        
+        Inputs
+        ---
+        mu:torch.tensor
+        log_var:torch.tensor
+        
+        Outputs
+        ---
+        z:torch.tensor
         """
         vector_size = log_var.shape
         # independent noise from different dimensions
@@ -350,7 +387,19 @@ class VanillaVAE(BaseVAE):
     
     def kl_divergence(self,z:Tensor,mu:Tensor,log_var:Tensor,) -> Tensor:
         """
+        Q(z|X) has mean of `mu` and std of `exp(log_var)`
+        kld = E[log(Q(z|X)) - log(P(z))], where P() is the function P(z|x)
+        https://towardsdatascience.com/variational-autoencoder-demystified-with-pytorch-implementation-3a06bee395ed
         
+        Inputs
+        ---
+        z:torch.tensor
+        mu:torch.tensor
+        log_var:torch.tensor
+        
+        Outputs
+        ---
+        KLD_loss:torch.tensor
         """
         KLD_loss = -0.5 * torch.sum(1 + log_var - mu.pow(2) - log_var.exp())
         return KLD_loss
@@ -369,18 +418,36 @@ class VanillaVAE(BaseVAE):
 class simple_classifier(nn.Module):
     def __init__(self,
                  pretrained_model_name:str,
-                 hidden_units,
-                 hidden_activation,
-                 hidden_dropout,
-                 output_units,
-                 output_activation,
-                 in_shape          = (1,3,128,128),
-                 layer_type        = 'linear',
-                 device            = 'cpu',
+                 hidden_units:int,
+                 hidden_activation:nn.Module,
+                 hidden_dropout:float,
+                 output_units:int,
+                 output_activation:nn.Module,
+                 in_shape:Tuple    = (1,3,128,128),
+                 layer_type:str    = 'linear',
+                 device:str        = 'cpu',
                  ) -> None:
         super(simple_classifier,self).__init__()
         """
+        A simple FCNN model
+        Extract image features --> hidden representation --> image category
         
+        Inputs
+        ---
+        pretrained_model_name: str,
+        hidden_units: int
+        hidden_activation: None or nn.Module, torch activation functions
+        hidden_dropout: float, between 0 and 1
+        output_units: int,
+        output_activation: str, sigmoid or softmax
+        in_shape: feature extractor input feature shape, default = (1,3,128,128)
+        layer_type: str, currently only "linear" is implemented, default = 'linear'
+        device: str or torch.device, default = 'cpu'
+        
+        Outputs
+        ---
+        image_category: torch.tensor
+        hidden_representation: torch.tensor
         """
         
         torch.manual_seed(12345)

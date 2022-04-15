@@ -95,7 +95,6 @@ if __name__ == "__main__":
                                                 )
     dataloader_train,dataloader_valid   = dataloader(
                                                 dataset_name        = dataset_name,
-                                                train               = True,
                                                 transform           = transform,
                                                 train_valid_split   = [45000,5000],
                                                 batch_size          = batch_size,
