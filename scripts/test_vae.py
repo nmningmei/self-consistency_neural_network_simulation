@@ -68,7 +68,6 @@ if __name__ == "__main__":
                                    in_shape                 = [1,3,image_resize,image_resize],
                                    device                   = device,
                                    )
-    
     # train settings
     learning_rate       = 1e-4
     l2_regularization   = 1e-16
@@ -86,69 +85,40 @@ if __name__ == "__main__":
                                tol             = tol,
                                patience        = patience,
                                )
-    # make transforms
-    transform                           = simple_augmentations(
-                                                image_resize    = image_resize,
-                                                noise_level     = noise_level_train,
-                                                rotation        = rotation,
-                                                gitter_color    = gitter_color,
-                                                )
-    dataloader_train,dataloader_valid   = dataloader(
-                                                dataset_name        = dataset_name,
-                                                train               = True,
-                                                transform           = transform,
-                                                train_valid_split   = [45000,5000],
-                                                batch_size          = batch_size,
-                                                shuffle             = True,
-                                                )
-    dataloader_test,_                   = dataloader(
-                                                dataset_name    = dataset_name,
-                                                train           = False,
-                                                transform       = transform,
-                                                batch_size      = batch_size,
-                                                shuffle         = True,
-                                                )
-    
+    # testing settings
+    n_noise_levels  = 20
+    max_noise_level = np.log10(100)
+    noise_levels    = np.concatenate([[0],np.logspace(-1,max_noise_level,n_noise_levels)])
     # build the variational autoencoder
     vae             = VanillaVAE(**vae_model_args).to(device)
-    params          = [p for p in vae.parameters() if p.requires_grad == True]
-    recon_loss_func = nn.MSELoss()
-    optimizer       = optim.Adam(params,
-                                 lr             = learning_rate,
-                                 weight_decay   = l2_regularization,
-                                 )
-    # train the VAE
-    if not os.path.exists(f_name) or retrain:
-        vae,losses      = vae_train_valid(
-                                vae,
-                                dataloader_train,
-                                dataloader_valid,
-                                optimizer,
-                                recon_loss_func = recon_loss_func,
-                                f_name          = f_name,
-                                **train_args
-                                )
-    else:
-        vae.load_state_dict(torch.load(f_name,map_location = device))
+    vae.load_state_dict(torch.load(f_name,map_location = device))
     # freeze the vae
     for p in vae.parameters(): p.requires_gard = False
     # build the simple classifier
     classifier      = simple_classifier(**clf_model_args).to(device)
-    params          = [p for p in classifier.parameters() if p.requires_grad == True]
-    image_loss_func = nn.BCELoss()
-    optimizer       = optim.Adam(params,
-                                 lr             = learning_rate,
-                                 weight_decay   = l2_regularization,
-                                 )
-    # train the classifier
-    classifier,clf_losses = clf_train_valid(
-                            classifier,
-                            dataloader_train,
-                            dataloader_valid,
-                            optimizer,
-                            image_loss_func = image_loss_func,
-                            f_name = f_name.replace('vae.h5','classifier.h5'),
-                            n_noise = n_noise,
-                            **train_args
-                            )
-    
+    classifier.load_state_dict(torch.load(f_name.replace('vae.h5','classifier.h5'),map_location = device))
+    # freeze the classifier
+    for p in classifier.parameters(): p.requires_grad = False
+    #
+    with torch.no_grad():
+        for ii,noise_level in enumerate(noise_levels):
+            # make transforms
+            transform                           = simple_augmentations(
+                                                        image_resize    = image_resize,
+                                                        noise_level     = noise_level,
+                                                        rotation        = rotation,
+                                                        gitter_color    = gitter_color,
+                                                        )
+            dataloader_test,_                   = dataloader(
+                                                        dataset_name    = dataset_name,
+                                                        train           = False,
+                                                        transform       = transform,
+                                                        batch_size      = batch_size,
+                                                        shuffle         = True,
+                                                        )
+            for batch_features,batch_labels in dataloader_test:
+                (reconstruction,
+                hidden_representation,
+                z,mu,log_var) = vae(batch_features.to(device))
+                _,batch_predictions = classifier(batch_features.to(device))
+                asdf

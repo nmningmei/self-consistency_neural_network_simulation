@@ -6,6 +6,9 @@ Created on Thu Apr 14 13:03:04 2022
 @author: nmei
 """
 from typing import List, Callable, Union, Any, TypeVar, Tuple, List, Optional
+###############################################################################
+Tensor = TypeVar('torch.tensor')
+###############################################################################
 import os,gc
 from glob        import glob
 from tqdm        import tqdm
@@ -371,22 +374,50 @@ def vae_train_valid(net,
                                     device          = device,
                                     print_train     = print_train,
                                     )
-        if idx_epoch > warmup_epochs: # warming up
-            temp = valid_loss.cpu().clone().detach().type(torch.float64)
-            if np.logical_and(temp < best_valid_loss,np.abs(best_valid_loss - temp) >= tol):
-                best_valid_loss = valid_loss.cpu().clone().detach().type(torch.float64)
-                torch.save(net.state_dict(),f_name)# why do i need state_dict()?
-                counts = 0
-            else:
-                counts += 1
+        best_valid_loss,counts = determine_training_stops(net,
+                                                          idx_epoch,
+                                                          warmup_epochs,
+                                                          valid_loss,
+                                                          device            = device,
+                                                          best_valid_loss   = best_valid_loss,
+                                                          tol               = tol,
+                                                          f_name            = f_name,
+                                                          )
         if counts >= patience:#(len(losses) > patience) and (len(set(losses[-patience:])) == 1):
             break
     losses.append(best_valid_loss)
     return net,losses
 
-def compute_image_loss(image_loss_func,image_category,labels,device,
-                       n_noise:int = 0,
-                       num_classes:int = 10):
+def determine_training_stops(net,
+                             idx_epoch:int,
+                             warmup_epochs:int,
+                             valid_loss:Tensor,
+                             counts: int        = 0,
+                             device             = 'cpu',
+                             best_valid_loss    = np.inf,
+                             tol:float          = 1e-4,
+                             f_name:str         = 'temp.h5',
+                             ) -> Tuple:
+    """
+    
+    """
+    if idx_epoch > warmup_epochs: # warming up
+        temp = valid_loss.cpu().clone().detach().type(torch.float64)
+        if np.logical_and(temp < best_valid_loss,np.abs(best_valid_loss - temp) >= tol):
+            best_valid_loss = valid_loss.cpu().clone().detach().type(torch.float64)
+            torch.save(net.state_dict(),f_name)# why do i need state_dict()?
+            counts = 0
+        else:
+            counts += 1
+    return best_valid_loss,counts
+
+def compute_image_loss(image_loss_func,
+                       image_category,
+                       labels,
+                       device,
+                       n_noise:int      = 0,
+                       num_classes:int  = 10,
+                       ) -> Tensor:
     """
     
     """
@@ -398,6 +429,7 @@ def compute_image_loss(image_loss_func,image_category,labels,device,
             noisy_labels    = torch.ones(labels.shape) * 0.5
             noisy_labels    = noisy_labels[:n_noise]
             labels          = torch.cat([labels.to(device),noisy_labels.to(device)])
+        print(image_category.shape,labels.shape)
         image_loss = image_loss_func(image_category.to(device),
                                      labels.view(image_category.shape).to(device)
                                      )
@@ -522,14 +554,15 @@ def clf_train_valid(net,
                                     device          = device,
                                     print_train     = print_train,
                                     )
-        if idx_epoch > warmup_epochs: # warming up
-            temp = valid_loss.cpu().clone().detach().type(torch.float64)
-            if np.logical_and(temp < best_valid_loss,np.abs(best_valid_loss - temp) >= tol):
-                best_valid_loss = valid_loss.cpu().clone().detach().type(torch.float64)
-                torch.save(net.state_dict(),f_name)# why do i need state_dict()?
-                counts = 0
-            else:
-                counts += 1
+        best_valid_loss,counts = determine_training_stops(net,
+                                                          idx_epoch,
+                                                          warmup_epochs,
+                                                          valid_loss,
+                                                          device            = device,
+                                                          best_valid_loss   = best_valid_loss,
+                                                          tol               = tol,
+                                                          f_name            = f_name,
+                                                          )
         if counts >= patience:#(len(losses) > patience) and (len(set(losses[-patience:])) == 1):
             break
     losses.append(best_valid_loss)

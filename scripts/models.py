@@ -10,11 +10,15 @@ https://github.com/AntixK/PyTorch-VAE
 """
 import torch
 from torch import functional as F
-from utils_deep import candidates
+from utils_deep import (candidates,
+                        define_type,
+                        hidden_activation_functions
+                        )
 
 from typing import List, Callable, Union, Any, TypeVar, Tuple
 from torch import nn
 from abc import abstractmethod
+
 
 ###############################################################################
 Tensor = TypeVar('torch.tensor')
@@ -45,34 +49,13 @@ class BaseVAE(nn.Module):
         pass
 ###############################################################################
 
-def define_type(model_name):
-    model_type          = dict(
-            alexnet     = 'simple',
-            vgg19       = 'simple',
-            densenet169 = 'simple',
-            inception   = 'inception',
-            mobilenet   = 'simple',
-            resnet18    = 'resnet',
-            resnet50    = 'resnet',
-            )
-    return model_type[model_name]
-
-def hidden_activation_functions(activation_func_name):
-    funcs = dict(relu = nn.ReLU(),
-                 selu = nn.SELU(),
-                 elu = nn.ELU(),
-                 sigmoid = nn.Sigmoid(),
-                 tanh = nn.Tanh(),
-                 linear = None,
-                 )
-    return funcs[activation_func_name]
 
 def create_hidden_layer(
-                        layer_type,
-                        input_units,
-                        output_units,
-                        output_dropout,
-                        output_activation,
+                        layer_type:str,
+                        input_units:int,
+                        output_units:int,
+                        output_dropout:float,
+                        output_activation:nn.Module,
                         device,
                         ):
     """
@@ -208,23 +191,23 @@ class resnet_model(nn.Module):
 ###############################################################################
 class VanillaVAE(BaseVAE):
     def __init__(self,
-                 pretrained_model_name:str = 'vgg19',
-                 hidden_units:int = 300,
-                 hidden_activation:nn.Module = nn.ReLU(),
-                 hidden_dropout:float = 0.,
-                 latent_units:int = 256,
-                 latent_activation:nn.Module = nn.LeakyReLU(),
-                 latent_dropout:float = 0.,
-                 in_channels:int = 3,
-                 in_shape:Tuple = (1,3,128,128),
-                 layer_type:str = 'linear',
-                 device = 'cpu',
-                 hidden_dims:List = None,
+                 pretrained_model_name:str      = 'vgg19',
+                 hidden_units:int               = 300,
+                 hidden_activation:nn.Module    = nn.ReLU(),
+                 hidden_dropout:float           = 0.,
+                 # latent_units:int               = 256,
+                 # latent_activation:nn.Module    = nn.LeakyReLU(),
+                 # latent_dropout:float           = 0.,
+                 in_channels:int                = 3,
+                 in_shape:Tuple                 = (1,3,128,128),
+                 layer_type:str                 = 'linear',
+                 device                         = 'cpu',
+                 hidden_dims:List               = None,
                  ) -> None:
         super(VanillaVAE,self).__init__()
         """
-        Encoder --> hidden_layer |--> mu      | --> z --> Decoder
-                                 |--> log_var |
+        Encoder -->|--> mu      | --> z --> Decoder
+                   |--> log_var |
         """
         
         torch.manual_seed(12345)
@@ -233,10 +216,10 @@ class VanillaVAE(BaseVAE):
         self.hidden_units                   = hidden_units
         self.hidden_activation              = hidden_activation
         self.hidden_dropout                 = hidden_dropout
-        self.latent_units                   = latent_units
+        # self.latent_units                   = latent_units
         self.layer_type                     = layer_type
-        self.latent_activation              = latent_activation
-        self.latent_dropout                 = latent_dropout
+        # self.latent_activation              = latent_activation
+        # self.latent_dropout                 = latent_dropout
         self.device                         = device
         self.in_channels                    = in_channels
         self.hidden_dims                    = hidden_dims
@@ -259,36 +242,37 @@ class VanillaVAE(BaseVAE):
             feature_extractor               = resnet_model(pretrained_model = pretrained_model,
                                                            ).to(self.device)
         ## hidden layer
-        self.hidden_layer                   = create_hidden_layer(
-                                                layer_type          = self.layer_type,
-                                                input_units         = self.in_features,
-                                                output_units        = self.hidden_units,
-                                                output_dropout      = self.hidden_dropout,
-                                                output_activation   = self.hidden_activation,
-                                                device              = self.device,
-                                                ).to(self.device)
+        # self.hidden_layer                   = create_hidden_layer(
+        #                                         layer_type          = self.layer_type,
+        #                                         input_units         = self.in_features,
+        #                                         output_units        = self.hidden_units,
+        #                                         output_dropout      = self.hidden_dropout,
+        #                                         output_activation   = self.hidden_activation,
+        #                                         device              = self.device,
+        #                                         ).to(self.device)
         ## the mu layer
         self.mu_layer                       = create_hidden_layer(
                                                 layer_type          = self.layer_type,
-                                                input_units         = self.hidden_units,
-                                                output_units        = self.latent_units,
-                                                output_activation   = nn.Sigmoid(),
+                                                input_units         = self.in_features,
+                                                output_units        = self.hidden_units,
+                                                output_activation   = self.hidden_activation,
                                                 output_dropout      = self.hidden_dropout,
                                                 device              = self.device,
                                                 ).to(self.device)
         ## the log_var layer
         self.log_var_layer                  = create_hidden_layer(
                                                 layer_type          = self.layer_type,
-                                                input_units         = self.hidden_units,
-                                                output_units        = self.latent_units,
-                                                output_activation   = nn.Sigmoid(),
+                                                input_units         = self.in_features,
+                                                output_units        = self.hidden_units,
+                                                output_activation   = self.hidden_activation,
                                                 output_dropout      = self.hidden_dropout,
                                                 device              = self.device,
                                                 ).to(self.device)
-        self.encoder                        = nn.Sequential(
-                                                feature_extractor,
-                                                self.hidden_layer,
-                                                ).to(self.device)
+        # self.encoder                        = nn.Sequential(
+        #                                         feature_extractor,
+        #                                         self.hidden_layer,
+        #                                         ).to(self.device)
+        self.encoder                        = feature_extractor.to(device)
         
         # Build Decoder
         modules = []
@@ -297,10 +281,11 @@ class VanillaVAE(BaseVAE):
                     nn.Sequential(
                             nn.ConvTranspose2d(self.hidden_dims[ii],
                                                self.hidden_dims[ii + 1],
-                                               kernel_size = 3,
-                                               stride = 2,
-                                               padding = 1,
-                                               output_padding = 1),
+                                               kernel_size      = 3,
+                                               stride           = 2,
+                                               padding          = 1,
+                                               output_padding   = 1,
+                                               ),
                             nn.BatchNorm2d(self.hidden_dims[ii + 1]),
                             nn.LeakyReLU()
                                 )
@@ -311,17 +296,17 @@ class VanillaVAE(BaseVAE):
         self.final_layer                    = nn.Sequential(
                                                 nn.ConvTranspose2d(self.hidden_dims[-1],
                                                                    self.hidden_dims[-1],
-                                                                   kernel_size = 3,
-                                                                   stride = 2,
-                                                                   padding = 1,
-                                                                   output_padding = 1,
+                                                                   kernel_size      = 3,
+                                                                   stride           = 2,
+                                                                   padding          = 1,
+                                                                   output_padding   = 1,
                                                                    ),
                                                 nn.BatchNorm2d(self.hidden_dims[-1]),
                                                 nn.LeakyReLU(),
                                                 nn.Conv2d(self.hidden_dims[-1],
-                                                          out_channels = 3,
-                                                          kernel_size = 3,
-                                                          padding = 1,
+                                                          out_channels  = 3,
+                                                          kernel_size   = 3,
+                                                          padding       = 1,
                                                           ),
                                                 nn.Tanh()
                                                 ).to(self.device)
@@ -332,7 +317,7 @@ class VanillaVAE(BaseVAE):
         hidden_representation = self.encoder(x)
         
         #
-        mu = self.mu_layer(hidden_representation)
+        mu      = self.mu_layer(hidden_representation)
         log_var = self.log_var_layer(hidden_representation)
         return hidden_representation,mu,log_var
 
@@ -340,9 +325,9 @@ class VanillaVAE(BaseVAE):
         """
         
         """
-        z = z.view(-1,self.latent_units,1,1)
-        conv_transpose = self.decoder(z)
-        output = self.final_layer(conv_transpose)
+        z               = z.view(-1,self.hidden_units,1,1)
+        conv_transpose  = self.decoder(z)
+        output          = self.final_layer(conv_transpose)
         return output
 
     def reparameterize(self,mu:Tensor,log_var:Tensor) -> Tensor:
@@ -351,16 +336,16 @@ class VanillaVAE(BaseVAE):
         """
         vector_size = log_var.shape
         # independent noise from different dimensions
-        dist = torch.distributions.multivariate_normal.MultivariateNormal(
+        dist        = torch.distributions.multivariate_normal.MultivariateNormal(
                             torch.zeros(vector_size[1]),
                             torch.eye(vector_size[1])
                             )
         # sample epsilon from a multivariate Gaussian distribution
-        eps = dist.sample((vector_size[0],)).to(self.device)
+        eps         = dist.sample((vector_size[0],)).to(self.device)
         # std = sqrt(exp(log_var))
-        std = torch.sqrt(torch.exp(log_var)).to(self.device)
+        std         = torch.sqrt(torch.exp(log_var)).to(self.device)
         # z = mu + std * eps
-        z = mu + std * eps
+        z           = mu + std * eps
         return z
     
     def kl_divergence(self,z:Tensor,mu:Tensor,log_var:Tensor,) -> Tensor:
@@ -374,17 +359,24 @@ class VanillaVAE(BaseVAE):
         return nn.MSELoss(x,reconstruct)
     
     def forward(self,x:Tensor,) -> List[Tensor]:
-        hidden_representation,mu,log_var = self.encode(x)
-        z = self.reparameterize(mu, log_var)
-        reconstruction = self.decode(z)
+        (hidden_representation,
+         mu,
+         log_var)       = self.encode(x)
+        z               = self.reparameterize(mu, log_var)
+        reconstruction  = self.decode(z)
         return reconstruction,hidden_representation,z,mu,log_var
 
 class simple_classifier(nn.Module):
     def __init__(self,
-                 vae_encoder:nn.Module,
-                 in_features:int = 300,
-                 output_units:int = 2,
-                 output_activation:nn.Module = nn.Softmax(dim = -1),
+                 pretrained_model_name:str,
+                 hidden_units,
+                 hidden_activation,
+                 hidden_dropout,
+                 output_units,
+                 output_activation,
+                 in_shape          = (1,3,128,128),
+                 layer_type        = 'linear',
+                 device            = 'cpu',
                  ) -> None:
         super(simple_classifier,self).__init__()
         """
@@ -392,11 +384,48 @@ class simple_classifier(nn.Module):
         """
         
         torch.manual_seed(12345)
-        self.feature_extractor = vae_encoder
-        self.output_layer = nn.Sequential(nn.Linear(in_features,output_units),
-                                          output_activation,
-                                          )
+        self.pretrained_model_name  = pretrained_model_name
+        self.hidden_units           = hidden_units
+        self.hidden_activation      = hidden_activation
+        self.hidden_dropout         = hidden_dropout
+        self.output_units           = output_units
+        self.output_activation      = output_activation
+        self.layer_type             = layer_type
+        self.device                 = device
+        
+        torch.manual_seed(12345)
+        self.pretrained_model       = candidates(pretrained_model_name)
+        # freeze the pretrained model
+        for params in self.pretrained_model.parameters():
+            params.requires_grad    = False
+        # get the dimensionof the CNN features
+        if define_type(self.pretrained_model_name) == 'simple':
+            self.in_features        = nn.AdaptiveAvgPool2d((1,1))(self.pretrained_model.features(torch.rand(*in_shape))).shape[1]
+            self.feature_extractor  = easy_model(pretrained_model = self.pretrained_model,)
+        elif define_type(self.pretrained_model_name) == 'resnet':
+            self.in_features        = self.pretrained_model.fc.in_features
+            self.feature_extractor  = resnet_model(pretrained_model = self.pretrained_model,)
+        
+        # hidden layer
+        self.hidden_layer = create_hidden_layer(
+                                        layer_type          = self.layer_type,
+                                        input_units         = self.in_features,
+                                        output_units        = self.hidden_units,
+                                        output_activation   = self.hidden_activation,
+                                        output_dropout      = self.hidden_dropout,
+                                        device              = self.device,
+                                        ).to(device)
+        # output layer
+        self.output_layer = nn.Sequential(
+                                        nn.Linear(self.hidden_units,
+                                                  self.output_units),
+                                        output_activation
+                                        ).to(device)
     def forward(self,x:Tensor) -> Tuple[Tensor]:
-        hidden_representation,mu,log_var = self.feature_extractor(x)
-        category = self.output_layer(hidden_representation)
-        return hidden_representation,category
+        # extract the CNN features
+        CNN_features            = self.feature_extractor(x)
+        # hidden layer
+        hidden_representation   = self.hidden_layer(CNN_features)
+        # image category
+        image_category          = self.output_layer(hidden_representation)
+        return hidden_representation,image_category
