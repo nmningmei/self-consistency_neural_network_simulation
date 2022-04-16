@@ -20,34 +20,48 @@ from models import (VanillaVAE,
 
 
 if __name__ == "__main__":
-    dataset_name    = 'CIFAR100'
-    experiment_name = 'vanilla_vae'
-    model_dir       = os.path.join('../models',experiment_name)
+    dataset_name            = 'CIFAR100'
+    experiment_name         = 'vanilla_vae'
+    train_root              = '../data'
+    valid_root              = '../data'
+    test_root               = '../data'
+    model_dir               = os.path.join('../models',experiment_name)
+    f_name                  = os.path.join(model_dir,'vae.h5')
     if not os.path.exists(model_dir):
         os.mkdir(model_dir)
-    f_name          = os.path.join(model_dir,'vae.h5')
     # image setting
-    batch_size          = 100
-    image_resize        = 32
-    noise_level_train   = 0.
-    noise_level_test    = 0.
-    rotation            = True
-    gitter_color        = False
+    batch_size              = 100 # batch size for each epoch
+    image_resize            = 32 # image hight
+    noise_level_train       = 0. # noise level in training
+    noise_level_test        = 0. # noise level in testing
+    rotation                = True # image augmentation
+    gitter_color            = False # image augmentation for Gabor patches
     # set up random seeds and GPU/CPU
     torch.manual_seed(12345)
     np.random.seed(12345)
     if torch.cuda.is_available():torch.cuda.empty_cache()
     torch.cuda.manual_seed(12345)
     torch.cuda.manual_seed_all(12345)
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    device                  = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     # model settings
     pretrained_model_name   = 'vgg19'
-    hidden_units            = 256
-    hidden_func_name        = 'selu'
+    hidden_units            = 300 # hidden layer units
+    hidden_func_name        = 'selu' # hidden layer activation function
     hidden_activation       = hidden_activation_functions(hidden_func_name)
-    hidden_dropout          = 0.
-    latent_dropout          = 0.
-    hidden_dims             = [256,128,64,32,16]# as long as we have 5 layers
+    hidden_dropout          = 0. # hidden layer dropout rate
+    hidden_dims             = [300,150,75,30,15]# as long as we have 5 layers
+    retrain_encoder         = True # retrain the CNN backbone convolutional layers
+    # train settings
+    learning_rate           = 1e-3 # initial learning rate, will be reduced by 10 after warmup epochs
+    l2_regularization       = 1e-16 # L2 regularization term, used as weight decay
+    print_train             = True # print the progresses
+    n_epochs                = int(1e3) # max number of epochs
+    warmup_epochs           = 5 # we don't save the models in these epochs
+    patience                = 10 # we wait for a number of epochs after the best performance
+    tol                     = 1e-4 # the difference between the current best and the next best
+    n_noise                 = 2 # number of noisy images used in training the classifier
+    retrain                 = True # retrain the VAE
+    
     vae_model_args          = dict(pretrained_model_name    = pretrained_model_name,
                                    hidden_units             = hidden_units,
                                    hidden_activation        = hidden_activation,
@@ -56,6 +70,7 @@ if __name__ == "__main__":
                                    in_channels              = 3,
                                    in_shape                 = [1,3,image_resize,image_resize],
                                    device                   = device,
+                                   retrain_encoder          = retrain_encoder,
                                    )
     clf_model_args          = dict(pretrained_model_name    = pretrained_model_name,
                                    # should be the same as the mu and log_var variables
@@ -68,23 +83,13 @@ if __name__ == "__main__":
                                    in_shape                 = [1,3,image_resize,image_resize],
                                    device                   = device,
                                    )
-    # train settings
-    learning_rate       = 1e-4
-    l2_regularization   = 1e-16
-    print_train         = True
-    n_epochs            = int(1e3)
-    warmup_epochs       = 3
-    patience            = 10
-    tol                 = 1e-4
-    n_noise             = 2
-    retrain             = True
-    train_args          = dict(device          = device,
-                               n_epochs        = n_epochs,
-                               print_train     = print_train,
-                               warmup_epochs   = warmup_epochs,
-                               tol             = tol,
-                               patience        = patience,
-                               )
+    train_args              = dict(device          = device,
+                                   n_epochs        = n_epochs,
+                                   print_train     = print_train,
+                                   warmup_epochs   = warmup_epochs,
+                                   tol             = tol,
+                                   patience        = patience,
+                                   )
     # testing settings
     n_noise_levels  = 20
     max_noise_level = np.log10(100)
@@ -118,7 +123,8 @@ if __name__ == "__main__":
                                                         )
             for batch_features,batch_labels in dataloader_test:
                 (reconstruction,
-                hidden_representation,
+                _,
                 z,mu,log_var) = vae(batch_features.to(device))
-                _,batch_predictions = classifier(batch_features.to(device))
+                (hidden_representation,
+                 batch_predictions) = classifier(batch_features.to(device))
                 asdf

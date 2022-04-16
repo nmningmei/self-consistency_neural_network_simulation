@@ -399,7 +399,8 @@ def vae_valid_loop(net,
                    idx_epoch:int                        = 0,
                    device                               = 'cpu',
                    print_train:bool                     = True,
-                   ) -> Tensor:
+                   classifier : Optional[nn.Module]     = None,
+                   ) -> Tuple:
     """
     validation process of the model
 
@@ -417,19 +418,23 @@ def vae_valid_loop(net,
         DESCRIPTION. The default is 'cpu'.
     print_train : bool, optional
         DESCRIPTION. The default is True.
-     
+    classifier : Optional[nn.Module], optional
+        It is used for a metric of the VAE. The default is None.
 
     Returns
     -------
-    Tensor
+    valid_loss:Tensor
         DESCRIPTION.
-
+    y_true: Optional[Tensor]
+    y_pred: Optional[Tensor]
     """
     if recon_loss_func == None:
         recon_loss_func = nn.MSELoss()
     net.eval()
     valid_loss  = 0.
     iterator    = tqdm(enumerate(dataloader))
+    y_true      = []
+    y_pred      = []
     with torch.no_grad():
         for ii,(batch_features,batch_labels) in iterator:
              (reconstruction,
@@ -441,7 +446,14 @@ def vae_valid_loop(net,
              valid_loss += loss_batch.data
              if print_train:
                  iterator.set_description(f'epoch {idx_epoch+1:3.0f}-{ii + 1:4.0f}/{100*(ii+1)/len(dataloader):2.3f}%,valid loss = {valid_loss/(ii+1):2.6f}')
-    return valid_loss
+             if classifier is not None:
+                 _,image_category = classifier(batch_features.to(device))
+                 y_true.append(batch_labels)
+                 y_pred.append(image_category)
+    if classifier is not None:
+        y_true = torch.cat(y_true)
+        y_pred = torch.cat(y_pred)
+    return valid_loss,y_true,y_pred
 
 def vae_train_valid(net,
                     dataloader_train,
@@ -455,6 +467,7 @@ def vae_train_valid(net,
                     tol:float                           = 1e-4,
                     f_name:str                          = 'temp.h5',
                     patience:int                        = 10,
+                    classifier : Optional[nn.Module]    = None
                     ) -> Union[nn.Module,Tensor]:
     """
     Train and validation process of the VAE
@@ -485,7 +498,9 @@ def vae_train_valid(net,
         DESCRIPTION. The default is 'temp.h5'.
     patience : int, optional
         DESCRIPTION. The default is 10.
-
+    classifier : Optional[nn.Module], optional
+        It is used for a metric of the VAE. The default is None.
+    
     Returns
     -------
     net : nn.Module
@@ -499,6 +514,7 @@ def vae_train_valid(net,
     best_valid_loss     = np.inf
     losses              = []
     counts              = 0
+    adjust_lr           = True
     for idx_epoch in range(n_epochs):
         _ = vae_train_loop(net,
                            dataloader_train,
@@ -508,12 +524,13 @@ def vae_train_valid(net,
                            device           = device,
                            print_train      = print_train,
                            )
-        valid_loss = vae_valid_loop(net,
+        valid_loss,y_true,y_pred = vae_valid_loop(net,
                                     dataloader_valid,
                                     recon_loss_func = recon_loss_func,
                                     idx_epoch       = idx_epoch,
                                     device          = device,
                                     print_train     = print_train,
+                                    classifier      = classifier,
                                     )
         best_valid_loss,counts = determine_training_stops(net,
                                                           idx_epoch,
@@ -524,6 +541,13 @@ def vae_train_valid(net,
                                                           tol               = tol,
                                                           f_name            = f_name,
                                                           )
+        if classifier is not None:
+            accuracy = torch.sum(y_true.to(device) == y_pred.max(1)[1].to(device)) / y_true.shape[0]
+            if print_train:
+                print(f'\nepoch {idx_epoch+1:3.0f} validation accuracy = {accuracy:2.4f}')
+        if idx_epoch + 1 > warmup_epochs and adjust_lr:
+            optimizer.param_groups[0]['lr'] /= 10
+            adjust_lr = False
         if counts >= patience:#(len(losses) > patience) and (len(set(losses[-patience:])) == 1):
             break
     losses.append(best_valid_loss)
@@ -618,14 +642,14 @@ def compute_image_loss(image_loss_func:Callable,
             noisy_labels    = torch.ones(labels.shape) * 0.5
             noisy_labels    = noisy_labels[:n_noise]
             labels          = torch.cat([labels.to(device),noisy_labels.to(device)])
-        print(image_category.shape,labels.shape)
+        # print(image_category.shape,labels.shape)
         image_loss = image_loss_func(image_category.to(device),
                                      labels.view(image_category.shape).to(device)
                                      )
     elif "negative log likelihood loss" in image_loss_func.__doc__:
         labels = labels.long()
         image_loss = image_loss_func(torch.log(image_category).to(device),
-                                     labels[:,-1].to(device))
+                                     labels.to(device))
     return image_loss
 
 
@@ -729,22 +753,28 @@ def clf_valid_loop(net:nn.Module,
         DESCRIPTION. The default is 'cpu'.
     print_train : bool, optional
         DESCRIPTION. The default is True.
+    
 
     Returns
     -------
-    valid_loss : Tensor
+    Valid_loss:Tensor
         DESCRIPTION.
-
+    y_true: Tensor, (n_samples,)
+    y_pred: Tensor, (n_samples,n_classes)
     """
     if image_loss_func == None:
         image_loss_func = nn.BCELoss()
     net.eval()
     valid_loss  = 0.
     iterator    = tqdm(enumerate(dataloader))
+    y_true      = []
+    y_pred      = []
     with torch.no_grad():
         for ii,(batch_features,batch_labels) in iterator:
              (reconstruction,
               image_category)  = net(batch_features.to(device))
+             y_true.append(batch_labels)
+             y_pred.append(image_category)
              # compute loss
              loss_batch      = compute_image_loss(
                                             image_loss_func,
@@ -755,7 +785,7 @@ def clf_valid_loop(net:nn.Module,
              valid_loss += loss_batch
              if print_train:
                  iterator.set_description(f'epoch {idx_epoch+1:3.0f}-{ii + 1:4.0f}/{100*(ii+1)/len(dataloader):2.3f}%,valid loss = {valid_loss/(ii+1):2.6f}')
-    return valid_loss
+    return valid_loss,torch.cat(y_true),torch.cat(y_pred)
 
 def clf_train_valid(net:nn.Module,
                     dataloader_train:data.DataLoader,
@@ -802,7 +832,6 @@ def clf_train_valid(net:nn.Module,
         DESCRIPTION. The default is 10.
     n_noise : int, optional
         DESCRIPTION. The default is 0.
-
     Returns
     -------
     net : nn.Module
@@ -816,6 +845,7 @@ def clf_train_valid(net:nn.Module,
     best_valid_loss     = np.inf
     losses              = []
     counts              = 0
+    adjust_lr           = True
     for idx_epoch in range(n_epochs):
         _ = clf_train_loop(net,
                            dataloader_train,
@@ -826,7 +856,7 @@ def clf_train_valid(net:nn.Module,
                            print_train      = print_train,
                            n_noise          = n_noise,
                            )
-        valid_loss = clf_valid_loop(net,
+        valid_loss,y_true,y_pred = clf_valid_loop(net,
                                     dataloader_valid,
                                     image_loss_func = image_loss_func,
                                     idx_epoch       = idx_epoch,
@@ -842,6 +872,12 @@ def clf_train_valid(net:nn.Module,
                                                           tol               = tol,
                                                           f_name            = f_name,
                                                           )
+        if idx_epoch + 1 > warmup_epochs and adjust_lr:
+            optimizer.param_groups[0]['lr'] /= 10
+            adjust_lr = False
+        # calculate accuracy
+        accuracy = torch.sum(y_true.to(device) == y_pred.max(1)[1].to(device)) / y_true.shape[0]
+        print(f'\nepoch {idx_epoch+1:3.0f} validation accuracy = {accuracy:2.4f}')
         if counts >= patience:#(len(losses) > patience) and (len(set(losses[-patience:])) == 1):
             break
     losses.append(best_valid_loss)

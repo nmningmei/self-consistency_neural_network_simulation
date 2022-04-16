@@ -198,6 +198,8 @@ class VanillaVAE(BaseVAE):
                  layer_type:str                 = 'linear',
                  device                         = 'cpu',
                  hidden_dims:List               = None,
+                 retrain_encoder:bool           = False,
+                 multi_hidden_layer:bool        = False,
                  ) -> None:
         super(VanillaVAE,self).__init__()
         """
@@ -216,6 +218,9 @@ class VanillaVAE(BaseVAE):
         layer_type:str, type of the hidden layers
         device:str or torch.device,
         hidden_dims:List, the list of hidden dimensions of the decoder
+        retrain_encoder:bool, unfreeze the CNN backbone during training
+        multi_hidden_layer:bool, if True, we have more than one dense layer
+            before the `mu` and `log_var` layers
         
         Outputs
         ---
@@ -237,127 +242,164 @@ class VanillaVAE(BaseVAE):
         self.device                         = device
         self.in_channels                    = in_channels
         self.hidden_dims                    = hidden_dims
+        self.multi_hidden_layer             = multi_hidden_layer
         # freeze the pretrained CNN layers
-        for params in pretrained_model.parameters():
-            params.requires_grad = False
+        if not retrain_encoder:
+            for params in pretrained_model.parameters():
+                params.requires_grad = False
         # for output channels of the decoder
         if self.hidden_dims == None:
             self.hidden_dims = [self.latent_units,128,64,32,16]
         # Build Encoder
         ## get the dimensionof the CNN features
-        if define_type(self.pretrained_model_name) == 'simple':
-            self.in_features                = nn.AdaptiveAvgPool2d((1,1))(
+        if define_type(pretrained_model_name) == 'simple':
+            in_features                = nn.AdaptiveAvgPool2d((1,1))(
                                                 pretrained_model.features(
                                                         torch.rand(*in_shape))).shape[1]
-            feature_extractor               = easy_model(pretrained_model = pretrained_model,
-                                                         ).to(self.device)
-        elif define_type(self.pretrained_model_name) == 'resnet':
-            self.in_features                = pretrained_model.fc.in_features
-            feature_extractor               = resnet_model(pretrained_model = pretrained_model,
-                                                           ).to(self.device)
-        ## hidden layer
-        # self.hidden_layer                   = create_hidden_layer(
-        #                                         layer_type          = self.layer_type,
-        #                                         input_units         = self.in_features,
-        #                                         output_units        = self.hidden_units,
-        #                                         output_dropout      = self.hidden_dropout,
-        #                                         output_activation   = self.hidden_activation,
-        #                                         device              = self.device,
-        #                                         ).to(self.device)
-        ## the mu layer
-        self.mu_layer                       = create_hidden_layer(
-                                                layer_type          = self.layer_type,
-                                                input_units         = self.in_features,
-                                                output_units        = self.hidden_units,
-                                                output_activation   = self.hidden_activation,
-                                                output_dropout      = self.hidden_dropout,
-                                                device              = self.device,
-                                                ).to(self.device)
-        ## the log_var layer
-        self.log_var_layer                  = create_hidden_layer(
-                                                layer_type          = self.layer_type,
-                                                input_units         = self.in_features,
-                                                output_units        = self.hidden_units,
-                                                output_activation   = self.hidden_activation,
-                                                output_dropout      = self.hidden_dropout,
-                                                device              = self.device,
-                                                ).to(self.device)
-        # self.encoder                        = nn.Sequential(
-        #                                         feature_extractor,
-        #                                         self.hidden_layer,
-        #                                         ).to(self.device)
-        self.encoder                        = feature_extractor.to(device)
+            feature_extractor          = easy_model(pretrained_model = pretrained_model,).to(device)
+        elif define_type(pretrained_model_name) == 'resnet':
+            in_features                = pretrained_model.fc.in_features
+            feature_extractor          = resnet_model(pretrained_model = pretrained_model,).to(device)
+        self.in_features                = in_features
         
-        # Build Decoder
-        modules = []
-        for ii in range(len(self.hidden_dims) - 1):
-            modules.append(
-                    nn.Sequential(
-                            nn.ConvTranspose2d(self.hidden_dims[ii],
-                                               self.hidden_dims[ii + 1],
-                                               kernel_size      = 3,
-                                               stride           = 2,
-                                               padding          = 1,
-                                               output_padding   = 1,
-                                               ),
-                            nn.BatchNorm2d(self.hidden_dims[ii + 1]),
-                            nn.LeakyReLU()
+        if self.multi_hidden_layer:
+            # we add more dense layers after the CNN layer
+            encoder = []
+            encoder.append(feature_extractor)
+            encoder.append(create_hidden_layer(
+                                            layer_type          = self.layer_type,
+                                            input_units         = self.in_features,
+                                            output_units        = self.hidden_dims[0],
+                                            output_activation   = self.hidden_activation,
+                                            output_dropout      = self.hidden_dropout,
+                                            device              = self.device,
+                                            ).to(device)
                                 )
-                        )
-        self.decoder                        = nn.Sequential(
-                                                *modules
-                                                ).to(self.device)
-        self.final_layer                    = nn.Sequential(
-                                                nn.ConvTranspose2d(self.hidden_dims[-1],
-                                                                   self.hidden_dims[-1],
-                                                                   kernel_size      = 3,
-                                                                   stride           = 2,
-                                                                   padding          = 1,
-                                                                   output_padding   = 1,
-                                                                   ),
-                                                nn.BatchNorm2d(self.hidden_dims[-1]),
-                                                nn.LeakyReLU(),
-                                                nn.Conv2d(self.hidden_dims[-1],
-                                                          out_channels  = 3,
-                                                          kernel_size   = 3,
-                                                          padding       = 1,
-                                                          ),
-                                                nn.Tanh()
-                                                ).to(self.device)
-    def encode(self,x:Tensor) -> List[Tensor]:
-        """
-        Inputs
-        ---
-        x:torch.tensor
+            for input_units,output_units in zip(self.hidden_dims[:-1],self.hidden_dims[1:]):
+                encoder.append(create_hidden_layer(
+                                            layer_type          = self.layer_type,
+                                            input_units         = input_units,
+                                            output_units        = output_units,
+                                            output_activation   = self.hidden_activation,
+                                            output_dropout      = self.hidden_dropout,
+                                            device              = self.device,
+                                            ).to(device)
+                                    )
+            self.encoder = nn.Sequential(*encoder).to(device)
+            ## the mu layer
+            self.mu_layer                       = create_hidden_layer(
+                                                    layer_type          = self.layer_type,
+                                                    input_units         = self.hidden_dims[-1],
+                                                    output_units        = self.hidden_dims[-1],
+                                                    output_activation   = self.hidden_activation,
+                                                    output_dropout      = self.hidden_dropout,
+                                                    device              = self.device,
+                                                    ).to(self.device)
+            ## the log_var layer
+            self.log_var_layer                  = create_hidden_layer(
+                                                    layer_type          = self.layer_type,
+                                                    input_units         = self.hidden_dims[-1],
+                                                    output_units        = self.hidden_dims[-1],
+                                                    output_activation   = self.hidden_activation,
+                                                    output_dropout      = self.hidden_dropout,
+                                                    device              = self.device,
+                                                    ).to(self.device)
+            # Build Decoder
+            modules = []
+            hidden_dims = self.hidden_dims.copy()
+            hidden_dims.reverse()
+            for ii in range(len(hidden_dims) - 1):
+                modules.append(
+                        nn.Sequential(
+                                nn.ConvTranspose2d(hidden_dims[ii],
+                                                   hidden_dims[ii + 1],
+                                                   kernel_size      = 3,
+                                                   stride           = 2,
+                                                   padding          = 1,
+                                                   output_padding   = 1,
+                                                   ),
+                                nn.BatchNorm2d(hidden_dims[ii + 1]),
+                                nn.LeakyReLU()
+                                    )
+                            )
+            self.decoder                        = nn.Sequential(*modules).to(self.device)
+            self.final_layer                    = nn.Sequential(
+                                                    nn.ConvTranspose2d(hidden_dims[-1],
+                                                                       hidden_dims[-1],
+                                                                       kernel_size      = 3,
+                                                                       stride           = 2,
+                                                                       padding          = 1,
+                                                                       output_padding   = 1,
+                                                                       ),
+                                                    nn.BatchNorm2d(hidden_dims[-1]),
+                                                    nn.LeakyReLU(),
+                                                    nn.Conv2d(hidden_dims[-1],
+                                                              out_channels  = 3,
+                                                              kernel_size   = 3,
+                                                              padding       = 1,
+                                                              ),
+                                                    nn.Tanh()
+                                                    ).to(self.device)
+            
+        else:
+            # we directly connect the CNN to mu and log_var
+            ## the mu layer
+            self.mu_layer                       = create_hidden_layer(
+                                                    layer_type          = self.layer_type,
+                                                    input_units         = self.in_features,
+                                                    output_units        = self.hidden_units,
+                                                    output_activation   = self.hidden_activation,
+                                                    output_dropout      = self.hidden_dropout,
+                                                    device              = self.device,
+                                                    ).to(self.device)
+            ## the log_var layer
+            self.log_var_layer                  = create_hidden_layer(
+                                                    layer_type          = self.layer_type,
+                                                    input_units         = self.in_features,
+                                                    output_units        = self.hidden_units,
+                                                    output_activation   = self.hidden_activation,
+                                                    output_dropout      = self.hidden_dropout,
+                                                    device              = self.device,
+                                                    ).to(self.device)
+            self.encoder                        = feature_extractor.to(device)
+            # Build Decoder
+            modules = []
+            hidden_dims = self.hidden_dims.copy()
+            for ii in range(len(hidden_dims) - 1):
+                modules.append(
+                        nn.Sequential(
+                                nn.ConvTranspose2d(hidden_dims[ii],
+                                                   hidden_dims[ii + 1],
+                                                   kernel_size      = 3,
+                                                   stride           = 2,
+                                                   padding          = 1,
+                                                   output_padding   = 1,
+                                                   ),
+                                nn.BatchNorm2d(hidden_dims[ii + 1]),
+                                nn.LeakyReLU()
+                                    )
+                            )
+            self.decoder                        = nn.Sequential(*modules).to(self.device)
+            self.final_layer                    = nn.Sequential(
+                                                    nn.ConvTranspose2d(hidden_dims[-1],
+                                                                       hidden_dims[-1],
+                                                                       kernel_size      = 3,
+                                                                       stride           = 2,
+                                                                       padding          = 1,
+                                                                       output_padding   = 1,
+                                                                       ),
+                                                    nn.BatchNorm2d(hidden_dims[-1]),
+                                                    nn.LeakyReLU(),
+                                                    nn.Conv2d(hidden_dims[-1],
+                                                              out_channels  = 3,
+                                                              kernel_size   = 3,
+                                                              padding       = 1,
+                                                              ),
+                                                    nn.Tanh()
+                                                    ).to(self.device)
         
-        Outputs
-        ---
-        hidden_representaion:torch.tensor,features extracted by the CNN backbone
-        mu:torch.tensor,connected to hidden representations
-        log_var:torch.tensor,connected to hidden representations
-        """
-        hidden_representation = self.encoder(x)
         
-        #
-        mu      = self.mu_layer(hidden_representation)
-        log_var = self.log_var_layer(hidden_representation)
-        return hidden_representation,mu,log_var
-
-    def decode(self,z:Tensor) -> Tensor:
-        """
-        Inputs
-        ---
-        z:torch.tensor, the sampled tensor for the decoder
         
-        Outputs
-        ---
-        output:torch.tensor, the reconsctructed images
-        """
-        z               = z.view(-1,self.hidden_units,1,1)
-        conv_transpose  = self.decoder(z)
-        output          = self.final_layer(conv_transpose)
-        return output
-
     def reparameterize(self,mu:Tensor,log_var:Tensor) -> Tensor:
         """
         sample hidden representation from Q(z | x)
@@ -408,12 +450,14 @@ class VanillaVAE(BaseVAE):
         return nn.MSELoss(x,reconstruct)
     
     def forward(self,x:Tensor,) -> List[Tensor]:
-        (hidden_representation,
-         mu,
-         log_var)       = self.encode(x)
-        z               = self.reparameterize(mu, log_var)
-        reconstruction  = self.decode(z)
-        return reconstruction,hidden_representation,z,mu,log_var
+        extracted_features  = self.encoder(x)
+        mu                  = self.mu_layer(extracted_features)
+        log_var             = self.log_var_layer(extracted_features)
+        z                   = self.reparameterize(mu, log_var)
+        z                   = z.view(-1,z.shape[1],1,1)
+        conv_transpose      = self.decoder(z)
+        reconstruction      = self.final_layer(conv_transpose)
+        return reconstruction,extracted_features,z,mu,log_var
 
 class simple_classifier(nn.Module):
     def __init__(self,
@@ -423,9 +467,11 @@ class simple_classifier(nn.Module):
                  hidden_dropout:float,
                  output_units:int,
                  output_activation:nn.Module,
-                 in_shape:Tuple    = (1,3,128,128),
-                 layer_type:str    = 'linear',
-                 device:str        = 'cpu',
+                 hidden_dims:List   = [],
+                 in_shape:Tuple     = (1,3,128,128),
+                 layer_type:str     = 'linear',
+                 device:str         = 'cpu',
+                 retrain_encoder    = False,
                  ) -> None:
         super(simple_classifier,self).__init__()
         """
@@ -440,9 +486,11 @@ class simple_classifier(nn.Module):
         hidden_dropout: float, between 0 and 1
         output_units: int,
         output_activation: str, sigmoid or softmax
+        hidden_dims: list, default = [],it is used for making multilayer classifier
         in_shape: feature extractor input feature shape, default = (1,3,128,128)
         layer_type: str, currently only "linear" is implemented, default = 'linear'
         device: str or torch.device, default = 'cpu'
+        retrain_encoder:bool, unfreeze CNN backbone during training
         
         Outputs
         ---
@@ -457,37 +505,71 @@ class simple_classifier(nn.Module):
         self.hidden_dropout         = hidden_dropout
         self.output_units           = output_units
         self.output_activation      = output_activation
+        self.hidden_dims            = hidden_dims
         self.layer_type             = layer_type
         self.device                 = device
-        
         torch.manual_seed(12345)
-        self.pretrained_model       = candidates(pretrained_model_name)
+        pretrained_model       = candidates(pretrained_model_name)
         # freeze the pretrained model
-        for params in self.pretrained_model.parameters():
-            params.requires_grad    = False
+        if not retrain_encoder:
+            for params in pretrained_model.parameters():
+                params.requires_grad = False
         # get the dimensionof the CNN features
-        if define_type(self.pretrained_model_name) == 'simple':
-            self.in_features        = nn.AdaptiveAvgPool2d((1,1))(self.pretrained_model.features(torch.rand(*in_shape))).shape[1]
-            self.feature_extractor  = easy_model(pretrained_model = self.pretrained_model,)
-        elif define_type(self.pretrained_model_name) == 'resnet':
-            self.in_features        = self.pretrained_model.fc.in_features
-            self.feature_extractor  = resnet_model(pretrained_model = self.pretrained_model,)
-        
+        if define_type(pretrained_model_name) == 'simple':
+            in_features                = nn.AdaptiveAvgPool2d((1,1))(
+                                                pretrained_model.features(
+                                                        torch.rand(*in_shape))).shape[1]
+            feature_extractor          = easy_model(pretrained_model = pretrained_model,).to(device)
+        elif define_type(pretrained_model_name) == 'resnet':
+            in_features                = pretrained_model.fc.in_features
+            feature_extractor          = resnet_model(pretrained_model = pretrained_model,).to(device)
+        self.in_features               = in_features
+        self.feature_extractor         = feature_extractor.to(device)
         # hidden layer
-        self.hidden_layer = create_hidden_layer(
-                                        layer_type          = self.layer_type,
-                                        input_units         = self.in_features,
-                                        output_units        = self.hidden_units,
-                                        output_activation   = self.hidden_activation,
-                                        output_dropout      = self.hidden_dropout,
-                                        device              = self.device,
-                                        ).to(device)
+        if len(hidden_dims) == 0:
+            self.hidden_layer = create_hidden_layer(
+                                            layer_type          = self.layer_type,
+                                            input_units         = self.in_features,
+                                            output_units        = self.hidden_units,
+                                            output_activation   = self.hidden_activation,
+                                            output_dropout      = self.hidden_dropout,
+                                            device              = self.device,
+                                            ).to(device)
+        else:
+            hidden_layer = []
+            hidden_layer.append(create_hidden_layer(
+                                            layer_type          = self.layer_type,
+                                            input_units         = self.in_features,
+                                            output_units        = self.hidden_dims[0],
+                                            output_activation   = self.hidden_activation,
+                                            output_dropout      = self.hidden_dropout,
+                                            device              = self.device,
+                                            ).to(device)
+                                )
+            for input_units,output_units in zip(self.hidden_dims[:-1],self.hidden_dims[1:]):
+                hidden_layer.append(create_hidden_layer(
+                                            layer_type          = self.layer_type,
+                                            input_units         = input_units,
+                                            output_units        = output_units,
+                                            output_activation   = self.hidden_activation,
+                                            output_dropout      = self.hidden_dropout,
+                                            device              = self.device,
+                                            ).to(device)
+                                    )
+            self.hidden_layer = nn.Sequential(*hidden_layer).to(device)
         # output layer
-        self.output_layer = nn.Sequential(
-                                        nn.Linear(self.hidden_units,
-                                                  self.output_units),
-                                        output_activation
-                                        ).to(device)
+        if len(hidden_dims) == 0:
+            self.output_layer = nn.Sequential(
+                                            nn.Linear(self.hidden_units,
+                                                      self.output_units),
+                                            output_activation
+                                            ).to(device)
+        else:
+            self.output_layer = nn.Sequential(
+                                            nn.Linear(self.hidden_dims[-1],
+                                                      self.output_units),
+                                            output_activation
+                                            ).to(device)
     def forward(self,x:Tensor) -> Tuple[Tensor]:
         # extract the CNN features
         CNN_features            = self.feature_extractor(x)
