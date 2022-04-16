@@ -30,7 +30,7 @@ if __name__ == "__main__":
     if not os.path.exists(model_dir):
         os.mkdir(model_dir)
     # image setting
-    batch_size              = 100 # batch size for each epoch
+    batch_size              = 64 # batch size for each epoch
     image_resize            = 32 # image hight
     noise_level_train       = 0. # noise level in training
     noise_level_test        = 0. # noise level in testing
@@ -45,21 +45,27 @@ if __name__ == "__main__":
     device                  = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     # model settings
     pretrained_model_name   = 'vgg19'
-    hidden_units            = 300 # hidden layer units
+    hidden_units            = 256 # hidden layer units
     hidden_func_name        = 'selu' # hidden layer activation function
     hidden_activation       = hidden_activation_functions(hidden_func_name)
     hidden_dropout          = 0. # hidden layer dropout rate
-    hidden_dims             = [300,150,75,30,15]# as long as we have 5 layers
+    hidden_dims             = [hidden_units,
+                               int(hidden_units/2),
+                               int(hidden_units/4),
+                               int(hidden_units/8),
+                               int(hidden_units/16),
+                               ]# as long as we have 5 layers
     retrain_encoder         = True # retrain the CNN backbone convolutional layers
+    multi_hidden_layer      = False # add more dense layer to the CNN in the VAE
     # train settings
     learning_rate           = 1e-3 # initial learning rate, will be reduced by 10 after warmup epochs
-    l2_regularization       = 1e-16 # L2 regularization term, used as weight decay
+    l2_regularization       = 1e-5 # L2 regularization term, used as weight decay
     print_train             = True # print the progresses
     n_epochs                = int(1e3) # max number of epochs
     warmup_epochs           = 5 # we don't save the models in these epochs
     patience                = 10 # we wait for a number of epochs after the best performance
     tol                     = 1e-4 # the difference between the current best and the next best
-    n_noise                 = 2 # number of noisy images used in training the classifier
+    n_noise                 = 0 # number of noisy images used in training the classifier
     retrain                 = True # retrain the VAE
     
     vae_model_args          = dict(pretrained_model_name    = pretrained_model_name,
@@ -71,7 +77,9 @@ if __name__ == "__main__":
                                    in_shape                 = [1,3,image_resize,image_resize],
                                    device                   = device,
                                    retrain_encoder          = retrain_encoder,
+                                   multi_hidden_layer       = multi_hidden_layer,
                                    )
+    hidden_dims             = hidden_dims if multi_hidden_layer else []
     clf_model_args          = dict(pretrained_model_name    = pretrained_model_name,
                                    # should be the same as the mu and log_var variables
                                    hidden_units             = hidden_units,
@@ -80,8 +88,10 @@ if __name__ == "__main__":
                                    hidden_dropout           = hidden_dropout,
                                    output_units             = 10,
                                    output_activation        = nn.Softmax(dim = -1),
+                                   hidden_dims              = hidden_dims,# this means we have one hidden layer
                                    in_shape                 = [1,3,image_resize,image_resize],
                                    device                   = device,
+                                   retrain_encoder          = retrain_encoder,
                                    )
     train_args              = dict(device          = device,
                                    n_epochs        = n_epochs,
@@ -104,6 +114,7 @@ if __name__ == "__main__":
     classifier.load_state_dict(torch.load(f_name.replace('vae.h5','classifier.h5'),map_location = device))
     # freeze the classifier
     for p in classifier.parameters(): p.requires_grad = False
+    
     #
     with torch.no_grad():
         for ii,noise_level in enumerate(noise_levels):

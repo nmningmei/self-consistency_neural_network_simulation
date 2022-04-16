@@ -292,14 +292,14 @@ class VanillaVAE(BaseVAE):
             self.hidden_dims = [self.latent_units,128,64,32,16]
         
         # Build Encoder
-        in_features,feature_extractor  = CNN_feature_extractor(
+        in_features,feature_extractor   = CNN_feature_extractor(
                                             pretrained_model_name   = pretrained_model_name,
                                             retrain_encoder         = retrain_encoder,
                                             in_shape                = in_shape,
                                             device                  = device,
                                                                )
-        self.in_features               = in_features
-        self.feature_extractor         = feature_extractor.to(device)
+        self.in_features                = in_features
+        feature_extractor               = feature_extractor.to(device)
         
         if self.multi_hidden_layer:
             # we add more dense layers after the CNN layer
