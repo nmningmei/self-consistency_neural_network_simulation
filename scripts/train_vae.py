@@ -132,7 +132,7 @@ if __name__ == "__main__":
                                   weight_decay   = l2_regularization,
                                   )
     # train the classifier
-    if False:#not os.path.exists(f_name.replace('vae.h5','classifier.h5')) or retrain:
+    if not os.path.exists(f_name.replace('vae.h5','classifier.h5')) or retrain:
         print('Train classifier')
         classifier,clf_losses = clf_train_valid(
                                 classifier,
