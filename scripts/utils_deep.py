@@ -447,7 +447,7 @@ def vae_valid_loop(net,
              if print_train:
                  iterator.set_description(f'epoch {idx_epoch+1:3.0f}-{ii + 1:4.0f}/{100*(ii+1)/len(dataloader):2.3f}%,valid loss = {valid_loss/(ii+1):2.6f}')
              if classifier is not None:
-                 _,image_category = classifier(batch_features.to(device))
+                 _,image_category = classifier(reconstruction.to(device))
                  y_true.append(batch_labels)
                  y_pred.append(image_category)
     if classifier is not None:

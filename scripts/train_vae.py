@@ -79,6 +79,7 @@ if __name__ == "__main__":
                                    retrain_encoder          = retrain_encoder,
                                    multi_hidden_layer       = multi_hidden_layer,
                                    )
+    hidden_dims             = hidden_dims if multi_hidden_layer else []
     clf_model_args          = dict(pretrained_model_name    = pretrained_model_name,
                                    # should be the same as the mu and log_var variables
                                    hidden_units             = hidden_units,

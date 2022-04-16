@@ -92,6 +92,50 @@ def create_hidden_layer(
         raise NotImplementedError
     else:
         raise NotImplementedError
+
+def CNN_feature_extractor(pretrained_model_name,
+                          retrain_encoder:bool,
+                          in_shape:Tuple = (1,3,128,128),
+                          device = 'cpu',
+                          ):
+    """
+    
+
+    Parameters
+    ----------
+    pretrained_model_name : TYPE
+        DESCRIPTION.
+    retrain_encoder : bool
+        DESCRIPTION.
+    in_shape : Tuple, optional
+        DESCRIPTION. The default is (1,3,128,128).
+    device : str or torch.device, optional
+        DESCRIPTION. The default is 'cpu'.
+
+    Returns
+    -------
+    in_features : int
+        DESCRIPTION.
+    feature_extractor : nn.Module
+        DESCRIPTION.
+
+    """
+    pretrained_model       = candidates(pretrained_model_name)
+    # freeze the pretrained model
+    if not retrain_encoder:
+        for params in pretrained_model.parameters():
+            params.requires_grad = False
+    # get the dimensionof the CNN features
+    if define_type(pretrained_model_name) == 'simple':
+        in_features                = nn.AdaptiveAvgPool2d((1,1))(
+                                            pretrained_model.features(
+                                                    torch.rand(*in_shape))).shape[1]
+        feature_extractor          = easy_model(pretrained_model = pretrained_model,).to(device)
+    elif define_type(pretrained_model_name) == 'resnet':
+        in_features                = pretrained_model.fc.in_features
+        feature_extractor          = resnet_model(pretrained_model = pretrained_model,).to(device)
+    return in_features,feature_extractor
+
 ###############################################################################
 class GaussianNoise(nn.Module):
     """
@@ -234,7 +278,6 @@ class VanillaVAE(BaseVAE):
         
         torch.manual_seed(12345)
         self.pretrained_model_name          = pretrained_model_name
-        pretrained_model                    = candidates(pretrained_model_name)
         self.hidden_units                   = hidden_units
         self.hidden_activation              = hidden_activation
         self.hidden_dropout                 = hidden_dropout
@@ -243,24 +286,20 @@ class VanillaVAE(BaseVAE):
         self.in_channels                    = in_channels
         self.hidden_dims                    = hidden_dims
         self.multi_hidden_layer             = multi_hidden_layer
-        # freeze the pretrained CNN layers
-        if not retrain_encoder:
-            for params in pretrained_model.parameters():
-                params.requires_grad = False
+        
         # for output channels of the decoder
         if self.hidden_dims == None:
             self.hidden_dims = [self.latent_units,128,64,32,16]
+        
         # Build Encoder
-        ## get the dimensionof the CNN features
-        if define_type(pretrained_model_name) == 'simple':
-            in_features                = nn.AdaptiveAvgPool2d((1,1))(
-                                                pretrained_model.features(
-                                                        torch.rand(*in_shape))).shape[1]
-            feature_extractor          = easy_model(pretrained_model = pretrained_model,).to(device)
-        elif define_type(pretrained_model_name) == 'resnet':
-            in_features                = pretrained_model.fc.in_features
-            feature_extractor          = resnet_model(pretrained_model = pretrained_model,).to(device)
-        self.in_features                = in_features
+        in_features,feature_extractor  = CNN_feature_extractor(
+                                            pretrained_model_name   = pretrained_model_name,
+                                            retrain_encoder         = retrain_encoder,
+                                            in_shape                = in_shape,
+                                            device                  = device,
+                                                               )
+        self.in_features               = in_features
+        self.feature_extractor         = feature_extractor.to(device)
         
         if self.multi_hidden_layer:
             # we add more dense layers after the CNN layer
@@ -509,20 +548,12 @@ class simple_classifier(nn.Module):
         self.layer_type             = layer_type
         self.device                 = device
         torch.manual_seed(12345)
-        pretrained_model       = candidates(pretrained_model_name)
-        # freeze the pretrained model
-        if not retrain_encoder:
-            for params in pretrained_model.parameters():
-                params.requires_grad = False
-        # get the dimensionof the CNN features
-        if define_type(pretrained_model_name) == 'simple':
-            in_features                = nn.AdaptiveAvgPool2d((1,1))(
-                                                pretrained_model.features(
-                                                        torch.rand(*in_shape))).shape[1]
-            feature_extractor          = easy_model(pretrained_model = pretrained_model,).to(device)
-        elif define_type(pretrained_model_name) == 'resnet':
-            in_features                = pretrained_model.fc.in_features
-            feature_extractor          = resnet_model(pretrained_model = pretrained_model,).to(device)
+        in_features,feature_extractor  = CNN_feature_extractor(
+                                            pretrained_model_name   = pretrained_model_name,
+                                            retrain_encoder         = retrain_encoder,
+                                            in_shape                = in_shape,
+                                            device                  = device,
+                                                               )
         self.in_features               = in_features
         self.feature_extractor         = feature_extractor.to(device)
         # hidden layer
@@ -534,6 +565,12 @@ class simple_classifier(nn.Module):
                                             output_activation   = self.hidden_activation,
                                             output_dropout      = self.hidden_dropout,
                                             device              = self.device,
+                                            ).to(device)
+            # output layer
+            self.output_layer = nn.Sequential(
+                                            nn.Linear(self.hidden_units,
+                                                      self.output_units),
+                                            output_activation
                                             ).to(device)
         else:
             hidden_layer = []
@@ -557,14 +594,7 @@ class simple_classifier(nn.Module):
                                             ).to(device)
                                     )
             self.hidden_layer = nn.Sequential(*hidden_layer).to(device)
-        # output layer
-        if len(hidden_dims) == 0:
-            self.output_layer = nn.Sequential(
-                                            nn.Linear(self.hidden_units,
-                                                      self.output_units),
-                                            output_activation
-                                            ).to(device)
-        else:
+            # output layer
             self.output_layer = nn.Sequential(
                                             nn.Linear(self.hidden_dims[-1],
                                                       self.output_units),
