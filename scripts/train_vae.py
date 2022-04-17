@@ -34,7 +34,7 @@ if __name__ == "__main__":
     # image setting
     batch_size              = 64 # batch size for each epoch
     image_resize            = 32 # image hight
-    noise_level_train       = 0. # noise level in training
+    noise_level_train       = 1e-3 # noise level in training
     noise_level_test        = 0. # noise level in testing
     rotation                = True # image augmentation
     gitter_color            = False # image augmentation for Gabor patches
@@ -142,7 +142,7 @@ if __name__ == "__main__":
     (optimizer,
      scheduler)     = optimizer_and_scheduler(params = params,**optim_args)
     # train the classifier
-    if not os.path.exists(f_name.replace('vae.h5','classifier.h5')) or False:#retrain:
+    if not os.path.exists(f_name.replace('vae.h5','classifier.h5')) or retrain:
         print('Train classifier')
         classifier,clf_losses = clf_train_valid(
                                 classifier,
@@ -165,7 +165,7 @@ if __name__ == "__main__":
     ###########################################################################
     # build the variational autoencoder
     print('Build VAE')
-    vae             = VanillaVAE(output_activation = nn.Tanh(),**vae_model_args).to(device)
+    vae             = VanillaVAE(output_activation = nn.Sigmoid(),**vae_model_args).to(device)
     params          = [p for p in vae.parameters() if p.requires_grad == True]
     print(f'Train {np.floor(len(params))} layers')
     recon_loss_func = nn.MSELoss()

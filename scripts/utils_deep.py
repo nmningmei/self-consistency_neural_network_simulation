@@ -330,7 +330,7 @@ def hidden_activation_functions(activation_func_name:str) -> nn.Module:
                  )
     return funcs[activation_func_name]
 
-def noise_fuc(x:Tensor,noise_level:float = 1,scale:Tuple = (-1,1)) -> Tensor:
+def noise_fuc(x:Tensor,noise_level:float = 1,scale:Tuple = (0,1)) -> Tensor:
     """
     add guassian noise to the images during agumentation procedures
 
@@ -395,7 +395,8 @@ def simple_augmentations(image_resize   = 128,
     # this step scale images to [0,1]
     steps.append(transforms.ToTensor())
     steps.append(transforms.Lambda(lambda x:noise_fuc(x,noise_level)))
-    # steps.append(transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]))
+    steps.append(transforms.Normalize(mean=[0., 0., 0.], std=[1., 1., 1.]))
+    # mean=[0., 0., 0.], std=[1., 1., 1.]
     # mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
     transform_steps = transforms.Compose(steps)
     return transform_steps
