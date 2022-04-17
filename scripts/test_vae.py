@@ -45,10 +45,10 @@ if __name__ == "__main__":
     device                  = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     # model settings
     pretrained_model_name   = 'vgg19'
-    hidden_units            = 256 # hidden layer units
+    hidden_units            = 128 # hidden layer units
     hidden_func_name        = 'selu' # hidden layer activation function
     hidden_activation       = hidden_activation_functions(hidden_func_name)
-    hidden_dropout          = 0.01 # hidden layer dropout rate
+    hidden_dropout          = 0. # hidden layer dropout rate
     hidden_dims             = [hidden_units,
                                int(hidden_units/2),
                                int(hidden_units/4),
@@ -56,10 +56,10 @@ if __name__ == "__main__":
                                int(hidden_units/16),
                                ]# as long as we have 5 layers
     retrain_encoder         = True # retrain the CNN backbone convolutional layers
-    multi_hidden_layer      = False # add more dense layer to the CNN in the VAE
+    multi_hidden_layer      = False # add more dense layer to the classifier and the VAE encoder
     # train settings
-    learning_rate           = 1e-3 # initial learning rate, will be reduced by 10 after warmup epochs
-    l2_regularization       = 1e-5 # L2 regularization term, used as weight decay
+    learning_rate           = 1e-4 # initial learning rate, will be reduced by 10 after warmup epochs
+    l2_regularization       = 1e-16 # L2 regularization term, used as weight decay
     print_train             = True # print the progresses
     n_epochs                = int(1e3) # max number of epochs
     warmup_epochs           = 5 # we don't save the models in these epochs
@@ -73,6 +73,7 @@ if __name__ == "__main__":
                                    hidden_activation        = hidden_activation,
                                    hidden_dropout           = hidden_dropout,
                                    hidden_dims              = hidden_dims,
+                                   latent_units             = hidden_units,
                                    in_channels              = 3,
                                    in_shape                 = [1,3,image_resize,image_resize],
                                    device                   = device,
@@ -98,8 +99,37 @@ if __name__ == "__main__":
                                    print_train     = print_train,
                                    warmup_epochs   = warmup_epochs,
                                    tol             = tol,
-                                   patience        = patience,
+                                   # patience        = patience,
                                    )
+    optim_args              = dict(learning_rate        = learning_rate,
+                                   l2_regularization    = l2_regularization,
+                                   mode                 = 'min',
+                                   factor               = .5,
+                                   patience             = int(patience/2),
+                                   threshold            = tol,
+                                   min_lr               = 1e-8,
+                                   )
+    # make transforms
+    transform                           = simple_augmentations(
+                                                image_resize    = image_resize,
+                                                noise_level     = noise_level_train,
+                                                rotation        = rotation,
+                                                gitter_color    = gitter_color,
+                                                )
+    dataloader_train,dataloader_valid   = dataloader(
+                                                dataset_name        = dataset_name,
+                                                transform           = transform,
+                                                train_valid_split   = [45000,5000],
+                                                batch_size          = batch_size,
+                                                shuffle             = True,
+                                                )
+    dataloader_test,_                   = dataloader(
+                                                dataset_name    = dataset_name,
+                                                train           = False,
+                                                transform       = transform,
+                                                batch_size      = batch_size,
+                                                shuffle         = True,
+                                                )
     # testing settings
     n_noise_levels  = 20
     max_noise_level = np.log10(100)

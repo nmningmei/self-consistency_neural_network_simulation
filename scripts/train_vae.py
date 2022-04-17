@@ -142,7 +142,7 @@ if __name__ == "__main__":
     (optimizer,
      scheduler)     = optimizer_and_scheduler(params = params,**optim_args)
     # train the classifier
-    if not os.path.exists(f_name.replace('vae.h5','classifier.h5')) or retrain:
+    if not os.path.exists(f_name.replace('vae.h5','classifier.h5')) or False:#retrain:
         print('Train classifier')
         classifier,clf_losses = clf_train_valid(
                                 classifier,
@@ -179,6 +179,7 @@ if __name__ == "__main__":
                                 dataloader_train,
                                 dataloader_valid,
                                 optimizer,
+                                scheduler,
                                 recon_loss_func = recon_loss_func,
                                 f_name          = f_name,
                                 classifier      = classifier,
