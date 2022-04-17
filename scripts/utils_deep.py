@@ -8,7 +8,7 @@ Created on Thu Apr 14 13:03:04 2022
 I didn't know spyder has a quick documentation feature
 
 """
-from typing import List, Callable, Union, Any, TypeVar, Tuple, List, Optional
+from typing import List, Callable, Union, Any, TypeVar, Tuple, Optional
 ###############################################################################
 Tensor = TypeVar('torch.tensor')
 ###############################################################################
@@ -198,6 +198,58 @@ def data_loader(data_root:str,
                 )
     return loader
 
+def optimizer_and_scheduler(params:List,
+                            learning_rate:float     = 1e-4,
+                            l2_regularization:float = 1e-16,
+                            mode:str                = 'min',
+                            factor:float            = .5,
+                            patience:int            = 5,
+                            threshold:float         = 1e-4,
+                            min_lr:float            = 1e-8,
+                            ) -> Union:
+    """
+    Generate optimizer and scheduler
+
+    Parameters
+    ----------
+    params : List
+        DESCRIPTION.
+    learning_rate : float, optional
+        DESCRIPTION. The default is 1e-4.
+    l2_regularization : float, optional
+        DESCRIPTION. The default is 1e-16.
+    mode : str, optional
+        DESCRIPTION. The default is 'min'.
+    factor : float, optional
+        DESCRIPTION. The default is .5.
+    patience : int, optional
+        DESCRIPTION. The default is 5.
+    threshold : float, optional
+        DESCRIPTION. The default is 1e-4.
+    min_lr : float, optional
+        DESCRIPTION. The default is 1e-8.
+
+    Returns
+    -------
+    optimizer : torch.optim
+    scheduler : torch.optim.lr_scheduler
+        DESCRIPTION.
+
+    """
+    optimizer       = optim.Adam(params,
+                                 lr             = learning_rate,
+                                 weight_decay   = l2_regularization,
+                                 )
+    scheduler       = optim.lr_scheduler.ReduceLROnPlateau(optimizer    = optimizer,
+                                                           mode         = mode,
+                                                           factor       = factor,
+                                                           patience     = patience,
+                                                           threshold    = threshold,
+                                                           min_lr       = min_lr,
+                                                           verbose      = 1,
+                                                           )
+    return optimizer,scheduler
+
 #candidate models
 def candidates(model_name:str,pretrained:bool = True,) -> nn.Module:
     """
@@ -278,17 +330,33 @@ def hidden_activation_functions(activation_func_name:str) -> nn.Module:
                  )
     return funcs[activation_func_name]
 
-def noise_fuc(x,noise_level = 1):
+def noise_fuc(x:Tensor,noise_level:float = 1,scale:Tuple = (-1,1)) -> Tensor:
     """
     add guassian noise to the images during agumentation procedures
 
     Parameters
-    --------------------
-    x: torch.tensor, batch_size x 3 x height x width
-    noise_level: float, standard deviation of the gaussian distribution
+    ----------
+    x : Tensor
+        DESCRIPTION.
+    noise_level : float, optional
+        DESCRIPTION. The default is 1.
+    scale : Tuple, optional
+        DESCRIPTION. 
+
+    Returns
+    -------
+    x: Tensor
+        DESCRIPTION.
+
     """
-    generator = torch.distributions.normal.Normal(0,noise_level)
-    return x + generator.sample(x.shape)
+    if noise_level > 0:
+        # generator = torch.distributions.normal.Normal(0,noise_level)
+        generator = torch.distributions.half_normal.HalfNormal(scale = noise_level,)
+        x = x + generator.sample(x.shape)
+    # rescale x back to [0,1]
+    x = (x - x.min()) / (x.max() - x.min())
+    x = x * (scale[1] - scale[0]) + scale[0]
+    return x
 
 def simple_augmentations(image_resize   = 128,
                          noise_level    = None,
@@ -315,17 +383,19 @@ def simple_augmentations(image_resize   = 128,
         steps.append(transforms.RandomHorizontalFlip(p = 0.5))
         steps.append(transforms.RandomRotation(45,))
         steps.append(transforms.RandomVerticalFlip(p = 0.5))
+        steps.append(transforms.RandomPerspective(p = 0.5))
+        steps.append(transforms.RandomAutocontrast(p = 0.5))
+        steps.append(transforms.RandomInvert(p = 0.5))
     elif gitter_color and not rotation:
         steps.append(transforms.RandomCrop((image_resize,image_resize)))
         steps.append(transforms.ColorJitter(brightness = 0.25,
                                             contrast = 0.25,
                                             saturation = 0.25,
                                             hue = 0.25,))
-    
+    # this step scale images to [0,1]
     steps.append(transforms.ToTensor())
-    if noise_level > 0:
-        steps.append(transforms.Lambda(lambda x:noise_fuc(x,noise_level)))
-    steps.append(transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]))
+    steps.append(transforms.Lambda(lambda x:noise_fuc(x,noise_level)))
+    # steps.append(transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]))
     # mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
     transform_steps = transforms.Compose(steps)
     return transform_steps
@@ -337,6 +407,7 @@ def vae_train_loop(net,
                    idx_epoch:int                        = 0,
                    device                               = 'cpu',
                    print_train:bool                     = True,
+                   beta:float                           = 1.,
                    ) -> Union[nn.Module,Tensor]:
     """
     Train a variational autoencoder
@@ -357,7 +428,8 @@ def vae_train_loop(net,
         DESCRIPTION. The default is 'cpu'.
     print_train : bool, optional
         DESCRIPTION. The default is True.
-
+    beta: float
+        weight of variational loss
     Returns
     -------
     net : nn.Module
@@ -382,7 +454,7 @@ def vae_train_loop(net,
         recon_loss      = recon_loss_func(batch_features.to(device),reconstruction)
         # variational loss
         kld_loss        = net.kl_divergence(z, mu, log_var)
-        loss_batch      = recon_loss + kld_loss
+        loss_batch      = recon_loss + beta * kld_loss
         # backpropagation
         loss_batch.backward()
         # modify the weights
@@ -459,6 +531,7 @@ def vae_train_valid(net,
                     dataloader_train,
                     dataloader_valid,
                     optimizer,
+                    scheduler,
                     n_epochs:int                        = int(1e3),
                     recon_loss_func:Optional[nn.Module] = None,
                     device                              = 'cpu',
@@ -467,7 +540,8 @@ def vae_train_valid(net,
                     tol:float                           = 1e-4,
                     f_name:str                          = 'temp.h5',
                     patience:int                        = 10,
-                    classifier : Optional[nn.Module]    = None
+                    classifier : Optional[nn.Module]    = None,
+                    beta                                = 1.,
                     ) -> Union[nn.Module,Tensor]:
     """
     Train and validation process of the VAE
@@ -481,6 +555,8 @@ def vae_train_valid(net,
     dataloader_valid : callable
         DESCRIPTION.
     optimizer : callable
+        DESCRIPTION.
+    scheduler : torch.optim
         DESCRIPTION.
     n_epochs : int, optional
         DESCRIPTION. The default is int(1e3).
@@ -500,6 +576,8 @@ def vae_train_valid(net,
         DESCRIPTION. The default is 10.
     classifier : Optional[nn.Module], optional
         It is used for a metric of the VAE. The default is None.
+    beta : float
+        weight of variational loss
     
     Returns
     -------
@@ -514,7 +592,7 @@ def vae_train_valid(net,
     best_valid_loss     = np.inf
     losses              = []
     counts              = 0
-    adjust_lr           = True
+    # adjust_lr           = True
     for idx_epoch in range(n_epochs):
         _ = vae_train_loop(net,
                            dataloader_train,
@@ -523,6 +601,7 @@ def vae_train_valid(net,
                            idx_epoch        = idx_epoch,
                            device           = device,
                            print_train      = print_train,
+                           beta             = beta,
                            )
         valid_loss,y_true,y_pred = vae_valid_loop(net,
                                     dataloader_valid,
@@ -536,18 +615,20 @@ def vae_train_valid(net,
                                                           idx_epoch,
                                                           warmup_epochs,
                                                           valid_loss,
+                                                          counts            = counts,
                                                           device            = device,
                                                           best_valid_loss   = best_valid_loss,
                                                           tol               = tol,
                                                           f_name            = f_name,
                                                           )
+        scheduler.step(valid_loss)
         if classifier is not None:
             accuracy = torch.sum(y_true.to(device) == y_pred.max(1)[1].to(device)) / y_true.shape[0]
             if print_train:
-                print(f'\nepoch {idx_epoch+1:3.0f} validation accuracy = {accuracy:2.4f}')
-        if idx_epoch + 1 > warmup_epochs and adjust_lr:
-            optimizer.param_groups[0]['lr'] /= 10
-            adjust_lr = False
+                print(f'\nepoch {idx_epoch+1:3.0f} validation accuracy = {accuracy:2.4f},counts = {counts}')
+        # if idx_epoch + 1 > warmup_epochs and adjust_lr:
+        #     optimizer.param_groups[0]['lr'] /= 10
+        #     adjust_lr = False
         if counts >= patience:#(len(losses) > patience) and (len(set(losses[-patience:])) == 1):
             break
     losses.append(best_valid_loss)
@@ -791,6 +872,7 @@ def clf_train_valid(net:nn.Module,
                     dataloader_train:data.DataLoader,
                     dataloader_valid:data.DataLoader,
                     optimizer:torch.optim,
+                    scheduler:torch.optim,
                     n_epochs:int                        = int(1e3),
                     image_loss_func:Optional[nn.Module] = None,
                     device                              = 'cpu',
@@ -814,6 +896,8 @@ def clf_train_valid(net:nn.Module,
         DESCRIPTION.
     optimizer : torch.optim
         DESCRIPTION.
+    scheduler : torch.optim
+        learning rate scheduler
     n_epochs : int, optional
         DESCRIPTION. The default is int(1e3).
     image_loss_func : Optional[nn.Module], optional
@@ -845,7 +929,7 @@ def clf_train_valid(net:nn.Module,
     best_valid_loss     = np.inf
     losses              = []
     counts              = 0
-    adjust_lr           = True
+    # adjust_lr           = True
     for idx_epoch in range(n_epochs):
         _ = clf_train_loop(net,
                            dataloader_train,
@@ -863,21 +947,24 @@ def clf_train_valid(net:nn.Module,
                                     device          = device,
                                     print_train     = print_train,
                                     )
+        scheduler.step(valid_loss)
         best_valid_loss,counts = determine_training_stops(net,
                                                           idx_epoch,
                                                           warmup_epochs,
                                                           valid_loss,
+                                                          counts            = counts,
                                                           device            = device,
                                                           best_valid_loss   = best_valid_loss,
                                                           tol               = tol,
                                                           f_name            = f_name,
                                                           )
-        if idx_epoch + 1 > warmup_epochs and adjust_lr:
-            optimizer.param_groups[0]['lr'] /= 10
-            adjust_lr = False
+        # if idx_epoch + 1 > warmup_epochs and adjust_lr:
+        #     optimizer.param_groups[0]['lr'] /= 10
+        #     adjust_lr = False
+        
         # calculate accuracy
         accuracy = torch.sum(y_true.to(device) == y_pred.max(1)[1].to(device)) / y_true.shape[0]
-        print(f'\nepoch {idx_epoch+1:3.0f} validation accuracy = {accuracy:2.4f}')
+        print(f'\nepoch {idx_epoch+1:3.0f} validation accuracy = {accuracy:2.4f},counts = {counts}')
         if counts >= patience:#(len(losses) > patience) and (len(set(losses[-patience:])) == 1):
             break
     losses.append(best_valid_loss)

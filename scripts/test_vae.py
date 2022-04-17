@@ -48,7 +48,7 @@ if __name__ == "__main__":
     hidden_units            = 256 # hidden layer units
     hidden_func_name        = 'selu' # hidden layer activation function
     hidden_activation       = hidden_activation_functions(hidden_func_name)
-    hidden_dropout          = 0. # hidden layer dropout rate
+    hidden_dropout          = 0.01 # hidden layer dropout rate
     hidden_dims             = [hidden_units,
                                int(hidden_units/2),
                                int(hidden_units/4),

@@ -237,6 +237,8 @@ class VanillaVAE(BaseVAE):
                  hidden_units:int               = 300,
                  hidden_activation:nn.Module    = nn.ReLU(),
                  hidden_dropout:float           = 0.,
+                 output_activation              = nn.Tanh(),
+                 latent_units                   = 300,
                  in_channels:int                = 3,
                  in_shape:Tuple                 = (1,3,128,128),
                  layer_type:str                 = 'linear',
@@ -257,6 +259,8 @@ class VanillaVAE(BaseVAE):
         hidden_units:int, dimension of the hidden layer
         hidden_activation:nn.Module, the nonlinear activation of the hidden layer
         hidden_dropout:float, between 0 and 1, the dropout rate of the hidden layer
+        latent_units:int, dimesnion of the latent layers (mu,log_var,z)
+        output_activation: nn.Module, activation function of the reconstruction layer
         in_channels:int, number of channels of the input image
         in_shape:Tuple, the dimension of the inpu images (1,n_channels, height, width)
         layer_type:str, type of the hidden layers
@@ -281,6 +285,8 @@ class VanillaVAE(BaseVAE):
         self.hidden_units                   = hidden_units
         self.hidden_activation              = hidden_activation
         self.hidden_dropout                 = hidden_dropout
+        self.output_activation              = output_activation
+        self.latent_units                   = latent_units
         self.layer_type                     = layer_type
         self.device                         = device
         self.in_channels                    = in_channels
@@ -329,7 +335,7 @@ class VanillaVAE(BaseVAE):
             self.mu_layer                       = create_hidden_layer(
                                                     layer_type          = self.layer_type,
                                                     input_units         = self.hidden_dims[-1],
-                                                    output_units        = self.hidden_dims[-1],
+                                                    output_units        = self.latent_units,
                                                     output_activation   = self.hidden_activation,
                                                     output_dropout      = self.hidden_dropout,
                                                     device              = self.device,
@@ -338,15 +344,25 @@ class VanillaVAE(BaseVAE):
             self.log_var_layer                  = create_hidden_layer(
                                                     layer_type          = self.layer_type,
                                                     input_units         = self.hidden_dims[-1],
-                                                    output_units        = self.hidden_dims[-1],
+                                                    output_units        = self.latent_units,
                                                     output_activation   = self.hidden_activation,
                                                     output_dropout      = self.hidden_dropout,
                                                     device              = self.device,
                                                     ).to(self.device)
             # Build Decoder
-            modules = []
             hidden_dims = self.hidden_dims.copy()
             hidden_dims.reverse()
+            modules = [nn.Sequential(
+                                nn.ConvTranspose2d(latent_units,
+                                                   hidden_dims[0],
+                                                   kernel_size      = 3,
+                                                   stride           = 2,
+                                                   padding          = 1,
+                                                   output_padding   = 1,
+                                                   ),
+                                nn.BatchNorm2d(hidden_dims[0]),
+                                nn.LeakyReLU())
+                ]
             for ii in range(len(hidden_dims) - 1):
                 modules.append(
                         nn.Sequential(
@@ -377,7 +393,7 @@ class VanillaVAE(BaseVAE):
                                                               kernel_size   = 3,
                                                               padding       = 1,
                                                               ),
-                                                    nn.Tanh()
+                                                    self.output_activation
                                                     ).to(self.device)
             
         else:
@@ -434,7 +450,7 @@ class VanillaVAE(BaseVAE):
                                                               kernel_size   = 3,
                                                               padding       = 1,
                                                               ),
-                                                    nn.Tanh()
+                                                    self.output_activation
                                                     ).to(self.device)
         
         

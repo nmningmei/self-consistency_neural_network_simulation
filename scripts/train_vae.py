@@ -8,9 +8,10 @@ Created on Thu Apr 14 13:00:57 2022
 import os,torch
 from torch import nn,optim
 import numpy as np
-
+from typing import List,Union
 from utils_deep import (hidden_activation_functions,
                         dataloader,
+                        optimizer_and_scheduler,
                         simple_augmentations,
                         vae_train_valid,
                         clf_train_valid
@@ -19,6 +20,7 @@ from models import (VanillaVAE,
                     simple_classifier)
 
 
+    
 if __name__ == "__main__":
     dataset_name            = 'CIFAR100'
     experiment_name         = 'vanilla_vae'
@@ -45,7 +47,7 @@ if __name__ == "__main__":
     device                  = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     # model settings
     pretrained_model_name   = 'vgg19'
-    hidden_units            = 256 # hidden layer units
+    hidden_units            = 128 # hidden layer units
     hidden_func_name        = 'selu' # hidden layer activation function
     hidden_activation       = hidden_activation_functions(hidden_func_name)
     hidden_dropout          = 0. # hidden layer dropout rate
@@ -56,10 +58,10 @@ if __name__ == "__main__":
                                int(hidden_units/16),
                                ]# as long as we have 5 layers
     retrain_encoder         = True # retrain the CNN backbone convolutional layers
-    multi_hidden_layer      = False # add more dense layer to the CNN in the VAE
+    multi_hidden_layer      = False # add more dense layer to the classifier and the VAE encoder
     # train settings
-    learning_rate           = 1e-3 # initial learning rate, will be reduced by 10 after warmup epochs
-    l2_regularization       = 1e-5 # L2 regularization term, used as weight decay
+    learning_rate           = 1e-4 # initial learning rate, will be reduced by 10 after warmup epochs
+    l2_regularization       = 1e-16 # L2 regularization term, used as weight decay
     print_train             = True # print the progresses
     n_epochs                = int(1e3) # max number of epochs
     warmup_epochs           = 5 # we don't save the models in these epochs
@@ -73,6 +75,7 @@ if __name__ == "__main__":
                                    hidden_activation        = hidden_activation,
                                    hidden_dropout           = hidden_dropout,
                                    hidden_dims              = hidden_dims,
+                                   latent_units             = hidden_units,
                                    in_channels              = 3,
                                    in_shape                 = [1,3,image_resize,image_resize],
                                    device                   = device,
@@ -98,7 +101,15 @@ if __name__ == "__main__":
                                    print_train     = print_train,
                                    warmup_epochs   = warmup_epochs,
                                    tol             = tol,
-                                   patience        = patience,
+                                   # patience        = patience,
+                                   )
+    optim_args              = dict(learning_rate        = learning_rate,
+                                   l2_regularization    = l2_regularization,
+                                   mode                 = 'min',
+                                   factor               = .5,
+                                   patience             = int(patience/2),
+                                   threshold            = tol,
+                                   min_lr               = 1e-8,
                                    )
     # make transforms
     transform                           = simple_augmentations(
@@ -128,10 +139,8 @@ if __name__ == "__main__":
     params          = [p for p in classifier.parameters() if p.requires_grad == True]
     print(f'Train {np.floor(len(params))} layers')
     image_loss_func = nn.NLLLoss()
-    optimizer       = optim.Adam(params,
-                                  lr             = learning_rate,
-                                  weight_decay   = l2_regularization,
-                                  )
+    (optimizer,
+     scheduler)     = optimizer_and_scheduler(params = params,**optim_args)
     # train the classifier
     if not os.path.exists(f_name.replace('vae.h5','classifier.h5')) or retrain:
         print('Train classifier')
@@ -140,6 +149,7 @@ if __name__ == "__main__":
                                 dataloader_train,
                                 dataloader_valid,
                                 optimizer,
+                                scheduler,
                                 image_loss_func = image_loss_func,
                                 f_name          = f_name.replace('vae.h5','classifier.h5'),
                                 n_noise         = n_noise,
@@ -155,14 +165,12 @@ if __name__ == "__main__":
     ###########################################################################
     # build the variational autoencoder
     print('Build VAE')
-    vae             = VanillaVAE(**vae_model_args).to(device)
+    vae             = VanillaVAE(output_activation = nn.Tanh(),**vae_model_args).to(device)
     params          = [p for p in vae.parameters() if p.requires_grad == True]
     print(f'Train {np.floor(len(params))} layers')
     recon_loss_func = nn.MSELoss()
-    optimizer       = optim.Adam(params,
-                                 lr             = learning_rate,
-                                 weight_decay   = l2_regularization,
-                                 )
+    (optimizer,
+     scheduler)     = optimizer_and_scheduler(params = params,**optim_args)
     # train the VAE
     if not os.path.exists(f_name) or retrain:
         print('Train VAE')
@@ -174,6 +182,8 @@ if __name__ == "__main__":
                                 recon_loss_func = recon_loss_func,
                                 f_name          = f_name,
                                 classifier      = classifier,
+                                patience        = 100,
+                                beta            = 5,# since the reconstruction is not idea, and all we want is the learned sampling distributions, we weight more on the variational loss
                                 **train_args
                                 )
     else:
