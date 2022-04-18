@@ -323,10 +323,18 @@ def hidden_activation_functions(activation_func_name:str) -> nn.Module:
     funcs = dict(relu       = nn.ReLU(),
                  selu       = nn.SELU(),
                  elu        = nn.ELU(),
+                 celu       = nn.CELU(),
+                 gelu       = nn.GELU(),
+                 silu       = nn.SiLU(),
                  sigmoid    = nn.Sigmoid(),
                  tanh       = nn.Tanh(),
                  linear     = None,
                  leaky_relu = nn.LeakyReLU(),
+                 hardshrink = nn.Hardshrink(lambd = .1),
+                 softshrink = nn.Softshrink(lambd = .1),
+                 tanhshrink = nn.Tanhshrink(),
+                 # weight decay should not be used when learning aa for good performance.
+                 prelu      = nn.PReLU(num_parameters=3,),
                  )
     return funcs[activation_func_name]
 
@@ -395,11 +403,135 @@ def simple_augmentations(image_resize   = 128,
     # this step scale images to [0,1]
     steps.append(transforms.ToTensor())
     steps.append(transforms.Lambda(lambda x:noise_fuc(x,noise_level)))
-    steps.append(transforms.Normalize(mean=[0., 0., 0.], std=[1., 1., 1.]))
+    steps.append(transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]))
     # mean=[0., 0., 0.], std=[1., 1., 1.]
     # mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
     transform_steps = transforms.Compose(steps)
     return transform_steps
+
+def determine_training_stops(net,
+                             idx_epoch:int,
+                             warmup_epochs:int,
+                             valid_loss:Tensor,
+                             counts: int        = 0,
+                             device             = 'cpu',
+                             best_valid_loss    = np.inf,
+                             tol:float          = 1e-4,
+                             f_name:str         = 'temp.h5',
+                             ) -> Tuple[Tensor,int]:
+    """
+    
+
+    Parameters
+    ----------
+    net : nn.Module
+        DESCRIPTION.
+    idx_epoch : int
+        DESCRIPTION.
+    warmup_epochs : int
+        DESCRIPTION.
+    valid_loss : Tensor
+        DESCRIPTION.
+    counts : int, optional
+        DESCRIPTION. The default is 0.
+    device : TYPE, optional
+        DESCRIPTION. The default is 'cpu'.
+    best_valid_loss : TYPE, optional
+        DESCRIPTION. The default is np.inf.
+    tol : float, optional
+        DESCRIPTION. The default is 1e-4.
+    f_name : str, optional
+        DESCRIPTION. The default is 'temp.h5'.
+
+    Returns
+    -------
+    best_valid_loss: Tensor
+        DESCRIPTION.
+    counts:int
+        used for determine when to stop training
+    """
+    if idx_epoch > warmup_epochs: # warming up
+        temp = valid_loss.cpu().clone().detach().type(torch.float64)
+        if np.logical_and(temp < best_valid_loss,np.abs(best_valid_loss - temp) >= tol):
+            best_valid_loss = valid_loss.cpu().clone().detach().type(torch.float64)
+            torch.save(net.state_dict(),f_name)# why do i need state_dict()?
+            counts = 0
+        else:
+            counts += 1
+    return best_valid_loss,counts
+
+def compute_image_loss(image_loss_func:Callable,
+                       image_category:Tensor,
+                       labels:Tensor,
+                       device:str,
+                       n_noise:int      = 0,
+                       num_classes:int  = 10,
+                       ) -> Tensor:
+    """
+    Compute the loss of predicting the image categories
+
+    Parameters
+    ----------
+    image_loss_func : Callable
+        DESCRIPTION.
+    image_category : Tensor
+        DESCRIPTION.
+    labels : Tensor
+        DESCRIPTION.
+    device : str
+        DESCRIPTION.
+    n_noise : int, optional
+        DESCRIPTION. The default is 0.
+    num_classes : int, optional
+        DESCRIPTION. The default is 10.
+
+    Returns
+    -------
+    image_loss: Tensor
+        DESCRIPTION.
+
+    """
+    if "Binary Cross Entropy" in image_loss_func.__doc__:
+        labels = F.one_hot(labels,num_classes = num_classes,)
+        labels = labels.float()
+        if n_noise > 0:
+            noisy_labels    = torch.ones(labels.shape) * 0.5
+            noisy_labels    = noisy_labels[:n_noise]
+            labels          = torch.cat([labels.to(device),noisy_labels.to(device)])
+        # print(image_category.shape,labels.shape)
+        image_loss = image_loss_func(image_category.to(device),
+                                     labels.view(image_category.shape).to(device)
+                                     )
+    elif "negative log likelihood loss" in image_loss_func.__doc__:
+        labels = labels.long()
+        image_loss = image_loss_func(torch.log(image_category).to(device),
+                                     labels.to(device))
+    return image_loss
+
+def compute_kl_divergence(z:Tensor,mu:Tensor,log_var:Tensor,) -> Tensor:
+        """
+        Q(z|X) has mean of `mu` and std of `exp(log_var)`
+        kld = E[log(Q(z|X)) - log(P(z))], where P() is the function P(z|x)
+        https://towardsdatascience.com/variational-autoencoder-demystified-with-pytorch-implementation-3a06bee395ed
+        # see Appendix B from VAE paper:
+        # Kingma and Welling. Auto-Encoding Variational Bayes. ICLR, 2014
+        # https://arxiv.org/abs/1312.6114
+        # 0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
+        Inputs
+        ---
+        z:torch.tensor
+        mu:torch.tensor
+        log_var:torch.tensor
+        
+        Outputs
+        ---
+        KLD_loss:torch.tensor
+        """
+        KLD_loss = torch.mean(-0.5 * torch.sum(1 + log_var - mu ** 2 - log_var.exp(), dim = 1), dim = 0)
+        return KLD_loss
+    
+def compute_reconstruction_loss(x:Tensor,reconstruct:Tensor,loss_func:nn.Module,) -> Tensor:
+    return loss_func(x,reconstruct)
 
 def vae_train_loop(net,
                    dataloader,
@@ -635,106 +767,6 @@ def vae_train_valid(net,
     losses.append(best_valid_loss)
     return net,losses
 
-def determine_training_stops(net,
-                             idx_epoch:int,
-                             warmup_epochs:int,
-                             valid_loss:Tensor,
-                             counts: int        = 0,
-                             device             = 'cpu',
-                             best_valid_loss    = np.inf,
-                             tol:float          = 1e-4,
-                             f_name:str         = 'temp.h5',
-                             ) -> Tuple[Tensor,int]:
-    """
-    
-
-    Parameters
-    ----------
-    net : nn.Module
-        DESCRIPTION.
-    idx_epoch : int
-        DESCRIPTION.
-    warmup_epochs : int
-        DESCRIPTION.
-    valid_loss : Tensor
-        DESCRIPTION.
-    counts : int, optional
-        DESCRIPTION. The default is 0.
-    device : TYPE, optional
-        DESCRIPTION. The default is 'cpu'.
-    best_valid_loss : TYPE, optional
-        DESCRIPTION. The default is np.inf.
-    tol : float, optional
-        DESCRIPTION. The default is 1e-4.
-    f_name : str, optional
-        DESCRIPTION. The default is 'temp.h5'.
-
-    Returns
-    -------
-    best_valid_loss: Tensor
-        DESCRIPTION.
-    counts:int
-        used for determine when to stop training
-    """
-    if idx_epoch > warmup_epochs: # warming up
-        temp = valid_loss.cpu().clone().detach().type(torch.float64)
-        if np.logical_and(temp < best_valid_loss,np.abs(best_valid_loss - temp) >= tol):
-            best_valid_loss = valid_loss.cpu().clone().detach().type(torch.float64)
-            torch.save(net.state_dict(),f_name)# why do i need state_dict()?
-            counts = 0
-        else:
-            counts += 1
-    return best_valid_loss,counts
-
-def compute_image_loss(image_loss_func:Callable,
-                       image_category:Tensor,
-                       labels:Tensor,
-                       device:str,
-                       n_noise:int      = 0,
-                       num_classes:int  = 10,
-                       ) -> Tensor:
-    """
-    Compute the loss of predicting the image categories
-
-    Parameters
-    ----------
-    image_loss_func : Callable
-        DESCRIPTION.
-    image_category : Tensor
-        DESCRIPTION.
-    labels : Tensor
-        DESCRIPTION.
-    device : str
-        DESCRIPTION.
-    n_noise : int, optional
-        DESCRIPTION. The default is 0.
-    num_classes : int, optional
-        DESCRIPTION. The default is 10.
-
-    Returns
-    -------
-    image_loss: Tensor
-        DESCRIPTION.
-
-    """
-    if "Binary Cross Entropy" in image_loss_func.__doc__:
-        labels = F.one_hot(labels,num_classes = num_classes,)
-        labels = labels.float()
-        if n_noise > 0:
-            noisy_labels    = torch.ones(labels.shape) * 0.5
-            noisy_labels    = noisy_labels[:n_noise]
-            labels          = torch.cat([labels.to(device),noisy_labels.to(device)])
-        # print(image_category.shape,labels.shape)
-        image_loss = image_loss_func(image_category.to(device),
-                                     labels.view(image_category.shape).to(device)
-                                     )
-    elif "negative log likelihood loss" in image_loss_func.__doc__:
-        labels = labels.long()
-        image_loss = image_loss_func(torch.log(image_category).to(device),
-                                     labels.to(device))
-    return image_loss
-
-
 def clf_train_loop(net:nn.Module,
                    dataloader:data.DataLoader,
                    optimizer:Callable,
@@ -969,6 +1001,191 @@ def clf_train_valid(net:nn.Module,
         if counts >= patience:#(len(losses) > patience) and (len(set(losses[-patience:])) == 1):
             break
     losses.append(best_valid_loss)
+    return net,losses
+
+def clf_vae_train_loop(net:nn.Module,
+                       dataloader:data.DataLoader,
+                       optimizers:List,
+                       image_loss_func:nn.Module = nn.NLLLoss(),
+                       recon_loss_func:nn.Module = nn.MSELoss(),
+                       n_noise:int = 0,
+                       device = 'cpu',
+                       idx_epoch:int = 0,
+                       print_train:bool = True,
+                       beta:float = 1.,
+                       ):
+    optimizer1,optimizer2 = optimizers
+    net.train(True)
+    train_loss  = 0.
+    iterator    = tqdm(enumerate(dataloader))
+    for ii,(batch_features,batch_labels) in iterator:
+        if n_noise > 0:
+            # in order to have desired classification behavior, which is to predict
+            # chance when no signal is present, we manually add some noise samples
+            noise_generator = torch.distributions.normal.Normal(batch_features.mean(),
+                                                                batch_features.std())
+            noisy_features  = noise_generator.sample(batch_features.shape)[:n_noise]
+            
+            batch_features  = torch.cat([batch_features,noisy_features])
+        # zero grad
+        optimizer1.zero_grad()
+        optimizer2.zero_grad()
+        # forward pass
+        (reconstruction,
+         extracted_features,
+         z,mu,log_var,
+         hidden_representation,
+         image_category)  = net(batch_features.to(device))
+        # compute loss
+        ## image classification loss
+        image_loss      = compute_image_loss(
+                                        image_loss_func = image_loss_func,
+                                        image_category = image_category.to(device),
+                                        labels = batch_labels.to(device),
+                                        device = device,
+                                        n_noise = n_noise,
+                                        )
+        ## reconstruction loss
+        recon_loss      = compute_reconstruction_loss(batch_features.to(device),
+                                                      reconstruction.to(device),
+                                                      recon_loss_func,
+                                                      )
+        ## KLD loss
+        kld_loss        = compute_kl_divergence(z, mu, log_var)
+        
+        # backpropagation
+        loss_batch      = image_loss + recon_loss + beta * kld_loss
+        loss_batch.backward()
+        # modify the weights
+        optimizer1.step()
+        optimizer2.step()
+        # record the loss of a mini-batch
+        train_loss += loss_batch
+        
+        # image_loss.backward(retain_graph = True)
+        # vae_loss = recon_loss + beta * kld_loss
+        # vae_loss.backward()
+        # optimizer1.step()
+        # optimizer2.step()
+        # train_loss += image_loss + recon_loss + beta * kld_loss
+        if print_train:
+            iterator.set_description(f'epoch {idx_epoch+1:3.0f}-{ii + 1:4.0f}/{100*(ii+1)/len(dataloader):2.3f}%,train loss = {train_loss/(ii+1):2.6f}')
+    return net,train_loss
+
+def clf_vae_valid_loop(net:nn.Module,
+                       dataloader:data.DataLoader,
+                       image_loss_func:nn.Module = nn.NLLLoss(),
+                       recon_loss_func:nn.Module = nn.MSELoss(),
+                       device = 'cpu',
+                       idx_epoch:int = 0,
+                       print_train:bool = True,
+                       beta:float = 1.,):
+    net.eval()
+    valid_loss  = 0.
+    iterator    = tqdm(enumerate(dataloader))
+    y_true      = []
+    y_pred      = []
+    with torch.no_grad():
+        for ii,(batch_features,batch_labels) in iterator:
+            # forward pass
+            (reconstruction,
+             extracted_features,
+             z,mu,log_var,
+             hidden_representation,
+             image_category)  = net(batch_features.to(device))
+            y_true.append(batch_labels)
+            y_pred.append(image_category)
+            # compute loss
+            ## image classification loss
+            image_loss      = compute_image_loss(
+                                            image_loss_func = image_loss_func,
+                                            image_category = image_category.to(device),
+                                            labels = batch_labels.to(device),
+                                            device = device,
+                                            )
+            ## reconstruction loss
+            recon_loss      = compute_reconstruction_loss(batch_features.to(device),
+                                                          reconstruction.to(device),
+                                                          recon_loss_func,
+                                                          )
+            ## KLD loss
+            kld_loss        = compute_kl_divergence(z, mu, log_var)
+            # backpropagation
+            loss_batch      = image_loss + recon_loss + beta * kld_loss
+            valid_loss += loss_batch
+            if print_train:
+                iterator.set_description(f'epoch {idx_epoch+1:3.0f}-{ii + 1:4.0f}/{100*(ii+1)/len(dataloader):2.3f}%,valid loss = {valid_loss/(ii+1):2.6f}')
+    return valid_loss,torch.cat(y_true),torch.cat(y_pred),image_loss,recon_loss,kld_loss
+
+def clf_vae_train_valid(net:nn.Module,
+                        dataloader_train:data.DataLoader,
+                        dataloader_valid:data.DataLoader,
+                        optimizers:List,
+                        schedulers:List,
+                        image_loss_func:nn.Module           = nn.NLLLoss(),
+                        recon_loss_func:nn.Module           = nn.MSELoss(),
+                        n_epochs:int                        = int(1e3),
+                        device                              = 'cpu',
+                        print_train:bool                    = True,
+                        warmup_epochs:int                   = 10,
+                        tol:float                           = 1e-4,
+                        f_name:str                          = 'temp.h5',
+                        patience:int                        = 10,
+                        n_noise:int                         = 0,
+                        beta:float                          = 1.,
+                        ):
+    torch.random.manual_seed(12345)
+    scheduler1,scheduler2 = schedulers
+    best_valid_loss     = np.inf
+    losses              = []
+    counts              = 0
+    for idx_epoch in range(n_epochs):
+        net,train_loss = clf_vae_train_loop(
+                                net = net,
+                                dataloader = dataloader_train,
+                                optimizers = optimizers,
+                                image_loss_func = image_loss_func,
+                                recon_loss_func = recon_loss_func,
+                                n_noise = n_noise,
+                                device = device,
+                                idx_epoch = idx_epoch,
+                                print_train = print_train,
+                                beta = beta,
+                                )
+        (valid_loss,
+         y_true,y_pred,
+         image_loss,recon_loss,kld_loss) = clf_vae_valid_loop(
+                                net = net,
+                                dataloader = dataloader_valid,
+                                image_loss_func = image_loss_func,
+                                recon_loss_func = recon_loss_func,
+                                device = device,
+                                idx_epoch = idx_epoch,
+                                print_train = print_train,
+                                beta = beta,
+                                )
+        scheduler1.step(image_loss)
+        scheduler2.step(recon_loss + kld_loss)
+        best_valid_loss,counts = determine_training_stops(net,
+                                                          idx_epoch,
+                                                          warmup_epochs,
+                                                          valid_loss,
+                                                          counts            = counts,
+                                                          device            = device,
+                                                          best_valid_loss   = best_valid_loss,
+                                                          tol               = tol,
+                                                          f_name            = f_name,
+                                                          )
+        # calculate accuracy
+        accuracy = torch.sum(y_true.to(device) == y_pred.max(1)[1].to(device)) / y_true.shape[0]
+        print(f'''
+epoch {idx_epoch+1:3.0f} validation accuracy = {accuracy:2.4f},
+          image loss = {image_loss.detach().cpu().numpy():.4f},
+          VAE loss   = {beta * kld_loss.detach().cpu().numpy():.4f},
+          counts     = {counts}''')
+        if counts >= patience:#(len(losses) > patience) and (len(set(losses[-patience:])) == 1):
+            break
+    losses.append(best_valid_loss.detach().cpu().numpy())
     return net,losses
 
 if __name__ == "__main__":

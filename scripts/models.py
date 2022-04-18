@@ -81,11 +81,13 @@ def create_hidden_layer(
         if output_activation is not None:
             hidden_layer = nn.Sequential(
                                 latent_layer,
+                                nn.BatchNorm1d(output_units,),
                                 output_activation,
                                 dropout)
         else:
             hidden_layer = nn.Sequential(
                                 latent_layer,
+                                nn.BatchNorm1d(output_units),
                                 dropout)
         return hidden_layer
     elif layer_type == 'recurrent':
@@ -239,6 +241,7 @@ class VanillaVAE(BaseVAE):
                  hidden_dropout:float           = 0.,
                  output_activation              = nn.Tanh(),
                  latent_units                   = 300,
+                 latent_activation              = nn.Tanh(),
                  in_channels:int                = 3,
                  in_shape:Tuple                 = (1,3,128,128),
                  layer_type:str                 = 'linear',
@@ -260,6 +263,7 @@ class VanillaVAE(BaseVAE):
         hidden_activation:nn.Module, the nonlinear activation of the hidden layer
         hidden_dropout:float, between 0 and 1, the dropout rate of the hidden layer
         latent_units:int, dimesnion of the latent layers (mu,log_var,z)
+        latent_activation: nn.Module, activation for the latent layers
         output_activation: nn.Module, activation function of the reconstruction layer
         in_channels:int, number of channels of the input image
         in_shape:Tuple, the dimension of the inpu images (1,n_channels, height, width)
@@ -287,6 +291,7 @@ class VanillaVAE(BaseVAE):
         self.hidden_dropout                 = hidden_dropout
         self.output_activation              = output_activation
         self.latent_units                   = latent_units
+        self.latent_activation              = latent_activation
         self.layer_type                     = layer_type
         self.device                         = device
         self.in_channels                    = in_channels
@@ -306,7 +311,6 @@ class VanillaVAE(BaseVAE):
                                                                )
         self.in_features                = in_features
         feature_extractor               = feature_extractor.to(device)
-        
         if self.multi_hidden_layer:
             # we add more dense layers after the CNN layer
             encoder = []
@@ -336,7 +340,7 @@ class VanillaVAE(BaseVAE):
                                                     layer_type          = self.layer_type,
                                                     input_units         = self.hidden_dims[-1],
                                                     output_units        = self.latent_units,
-                                                    output_activation   = self.hidden_activation,
+                                                    output_activation   = self.latent_activation,
                                                     output_dropout      = self.hidden_dropout,
                                                     device              = self.device,
                                                     ).to(self.device)
@@ -345,7 +349,7 @@ class VanillaVAE(BaseVAE):
                                                     layer_type          = self.layer_type,
                                                     input_units         = self.hidden_dims[-1],
                                                     output_units        = self.latent_units,
-                                                    output_activation   = self.hidden_activation,
+                                                    output_activation   = self.latent_activation,
                                                     output_dropout      = self.hidden_dropout,
                                                     device              = self.device,
                                                     ).to(self.device)
@@ -403,7 +407,7 @@ class VanillaVAE(BaseVAE):
                                                     layer_type          = self.layer_type,
                                                     input_units         = self.in_features,
                                                     output_units        = self.hidden_units,
-                                                    output_activation   = self.hidden_activation,
+                                                    output_activation   = self.latent_activation,
                                                     output_dropout      = self.hidden_dropout,
                                                     device              = self.device,
                                                     ).to(self.device)
@@ -412,7 +416,7 @@ class VanillaVAE(BaseVAE):
                                                     layer_type          = self.layer_type,
                                                     input_units         = self.in_features,
                                                     output_units        = self.hidden_units,
-                                                    output_activation   = self.hidden_activation,
+                                                    output_activation   = self.latent_activation,
                                                     output_dropout      = self.hidden_dropout,
                                                     device              = self.device,
                                                     ).to(self.device)
@@ -452,8 +456,6 @@ class VanillaVAE(BaseVAE):
                                                               ),
                                                     self.output_activation
                                                     ).to(self.device)
-        
-        
         
     def reparameterize(self,mu:Tensor,log_var:Tensor) -> Tensor:
         """
@@ -529,29 +531,6 @@ class simple_classifier(nn.Module):
                  retrain_encoder    = False,
                  ) -> None:
         super(simple_classifier,self).__init__()
-        """
-        A simple FCNN model
-        Extract image features --> hidden representation --> image category
-        
-        Inputs
-        ---
-        pretrained_model_name: str,
-        hidden_units: int
-        hidden_activation: None or nn.Module, torch activation functions
-        hidden_dropout: float, between 0 and 1
-        output_units: int,
-        output_activation: str, sigmoid or softmax
-        hidden_dims: list, default = [],it is used for making multilayer classifier
-        in_shape: feature extractor input feature shape, default = (1,3,128,128)
-        layer_type: str, currently only "linear" is implemented, default = 'linear'
-        device: str or torch.device, default = 'cpu'
-        retrain_encoder:bool, unfreeze CNN backbone during training
-        
-        Outputs
-        ---
-        image_category: torch.tensor
-        hidden_representation: torch.tensor
-        """
         
         torch.manual_seed(12345)
         self.pretrained_model_name  = pretrained_model_name
@@ -624,3 +603,265 @@ class simple_classifier(nn.Module):
         # image category
         image_category          = self.output_layer(hidden_representation)
         return hidden_representation,image_category
+
+class vae_classifier(BaseVAE):
+    def __init__(self,
+                 pretrained_model_name:str      = 'vgg19',
+                 hidden_units:int               = 300,
+                 hidden_activation:nn.Module    = nn.ReLU(),
+                 hidden_dropout:float           = 0.,
+                 output_units:int               = 10,
+                 vae_output_activation          = nn.Tanhshrink(),
+                 clf_output_activation          = nn.Softmax(dim = -1),
+                 latent_units                   = 300,
+                 latent_activation              = nn.Tanh(),
+                 in_channels:int                = 3,
+                 in_shape:Tuple                 = (1,3,128,128),
+                 layer_type:str                 = 'linear',
+                 device                         = 'cpu',
+                 hidden_dims:List               = None,
+                 retrain_encoder:bool           = False,
+                 multi_hidden_layer:bool        = False,
+                 ) -> None:
+        """
+        CNN --> hidden layer | --> mu ------> | --> decoder
+                             | --> log_var -> |
+                             | --> y_pred
+
+        Parameters
+        ----------
+        pretrained_model_name : str, optional
+            CNN backnone model. The default is 'vgg19'.
+        hidden_units : int, optional
+            This is used when only 1 hidden layer for the image classifier. The default is 300.
+        hidden_activation : nn.Module, optional
+            This is used when only 1 hidden layer for the image classifier. The default is nn.ReLU().
+        hidden_dropout : float, optional
+            This is used when only 1 hidden layer for the image classifier.. The default is 0..
+        output_units : int, optional
+            The output dimension of the image classifier. The default is 10.
+        vae_output_activation : TYPE, optional
+            activation funtion of the reconstruction. The default is nn.Tanhshrink().
+        clf_output_activation : TYPE, optional
+            activation function for the image classifier. The default is nn.Softmax(dim = -1).
+        latent_units : TYPE, optional
+            Dimension of the mu and log_var layers. The default is 300.
+        latent_activation : TYPE, optional
+            activation functions for the mu and log_var layers. The default is nn.Tanh().
+        in_channels : int, optional
+            DESCRIPTION. The default is 3.
+        in_shape : Tuple, optional
+            DESCRIPTION. The default is (1,3,128,128).
+        layer_type : str, optional
+            DESCRIPTION. The default is 'linear'.
+        device : TYPE, optional
+            DESCRIPTION. The default is 'cpu'.
+        hidden_dims : List, optional
+            This is used for multilayer classifier and the decoder. The default is None.
+        retrain_encoder : bool, optional
+            Whether we want to retrained the CNN backbone layers. The default is False.
+        multi_hidden_layer : bool, optional
+            To build multilayer classifier. The default is False.
+
+        Returns
+        -------
+        None
+            DESCRIPTION.
+
+        """
+        super(vae_classifier,self).__init__()
+        torch.manual_seed(12345)
+        self.pretrained_model_name          = pretrained_model_name
+        self.hidden_units                   = hidden_units
+        self.hidden_activation              = hidden_activation
+        self.hidden_dropout                 = hidden_dropout
+        self.output_units                   = output_units
+        self.vae_output_activation          = vae_output_activation
+        self.clf_output_activation          = clf_output_activation
+        self.latent_units                   = latent_units
+        self.latent_activation              = latent_activation
+        self.layer_type                     = layer_type
+        self.device                         = device
+        self.in_channels                    = in_channels
+        self.hidden_dims                    = hidden_dims
+        self.multi_hidden_layer             = multi_hidden_layer
+        self.in_shape                       = in_shape
+        
+        
+        # CNN feature extractor
+        torch.manual_seed(12345)
+        in_features,feature_extractor  = CNN_feature_extractor(
+                                            pretrained_model_name   = self.pretrained_model_name,
+                                            retrain_encoder         = True,
+                                            in_shape                = self.in_shape,
+                                            device                  = self.device,
+                                                               )
+        self.in_features = in_features
+        self.feature_extractor = feature_extractor.to(self.device)
+        # vae
+        if self.multi_hidden_layer:
+            # classifier
+            ## hidden layers
+            hidden_layer = []
+            hidden_layer.append(create_hidden_layer(
+                                            layer_type          = self.layer_type,
+                                            input_units         = self.in_features,
+                                            output_units        = self.hidden_dims[0],
+                                            output_activation   = self.hidden_activation,
+                                            output_dropout      = self.hidden_dropout,
+                                            device              = self.device,
+                                            ).to(device)
+                                )
+            for input_units,output_units in zip(self.hidden_dims[:-1],self.hidden_dims[1:]):
+                hidden_layer.append(create_hidden_layer(
+                                            layer_type          = self.layer_type,
+                                            input_units         = input_units,
+                                            output_units        = output_units,
+                                            output_activation   = self.hidden_activation,
+                                            output_dropout      = self.hidden_dropout,
+                                            device              = self.device,
+                                            ).to(device)
+                                    )
+            self.hidden_layer = nn.Sequential(*hidden_layer).to(self.device)
+            ## output layer
+            self.output_layer = nn.Sequential(
+                                            nn.Linear(self.hidden_dims[-1],
+                                                      self.output_units),
+                                            self.clf_output_activation
+                                            ).to(self.device)
+            
+            ## we don't a particular encoder in this case
+            
+            ## the mu layer
+            self.mu_layer                       = create_hidden_layer(
+                                                    layer_type          = self.layer_type,
+                                                    input_units         = self.hidden_dims[-1],
+                                                    output_units        = self.latent_units,
+                                                    output_activation   = self.latent_activation,
+                                                    output_dropout      = self.hidden_dropout,
+                                                    device              = self.device,
+                                                    ).to(self.device)
+            ## the log_var layer
+            self.log_var_layer                  = create_hidden_layer(
+                                                    layer_type          = self.layer_type,
+                                                    input_units         = self.hidden_dims[-1],
+                                                    output_units        = self.latent_units,
+                                                    output_activation   = self.latent_activation,
+                                                    output_dropout      = self.hidden_dropout,
+                                                    device              = self.device,
+                                                    ).to(self.device)
+            
+            
+        else:
+            # classifier
+            self.hidden_layer = create_hidden_layer(
+                                                layer_type          = self.layer_type,
+                                                input_units         = self.in_features,
+                                                output_units        = self.hidden_units,
+                                                output_activation   = self.hidden_activation,
+                                                output_dropout      = self.hidden_dropout,
+                                                device              = self.device,
+                                                ).to(self.device)
+            # output layer
+            self.output_layer = nn.Sequential(
+                                            nn.Linear(self.hidden_units,
+                                                      self.output_units),
+                                            self.clf_output_activation
+                                            ).to(self.device)
+            # we directly connect the CNN to mu and log_var
+            ## the mu layer
+            self.mu_layer                       = create_hidden_layer(
+                                                    layer_type          = self.layer_type,
+                                                    input_units         = self.hidden_units,
+                                                    output_units        = self.latent_units,
+                                                    output_activation   = self.latent_activation,
+                                                    output_dropout      = self.hidden_dropout,
+                                                    device              = self.device,
+                                                    ).to(self.device)
+            ## the log_var layer
+            self.log_var_layer                  = create_hidden_layer(
+                                                    layer_type          = self.layer_type,
+                                                    input_units         = self.hidden_units,
+                                                    output_units        = self.latent_units,
+                                                    output_activation   = self.latent_activation,
+                                                    output_dropout      = self.hidden_dropout,
+                                                    device              = self.device,
+                                                    ).to(self.device)
+            self.encoder                        = feature_extractor.to(self.device)
+        # Build Decoder
+        hidden_dims = self.hidden_dims.copy()
+        hidden_dims.reverse()
+        modules = [nn.Sequential(
+                            nn.ConvTranspose2d(self.latent_units,
+                                               hidden_dims[0],
+                                               kernel_size      = 3,
+                                               stride           = 2,
+                                               padding          = 1,
+                                               output_padding   = 1,
+                                               ),
+                            nn.BatchNorm2d(hidden_dims[0]),
+                            nn.LeakyReLU())
+            ]
+        for ii in range(len(hidden_dims) - 1):
+            modules.append(
+                    nn.Sequential(
+                            nn.ConvTranspose2d(hidden_dims[ii],
+                                               hidden_dims[ii + 1],
+                                               kernel_size      = 3,
+                                               stride           = 2,
+                                               padding          = 1,
+                                               output_padding   = 1,
+                                               ),
+                            nn.BatchNorm2d(hidden_dims[ii + 1]),
+                            nn.LeakyReLU()
+                                )
+                        )
+        self.decoder                        = nn.Sequential(*modules).to(self.device)
+        self.final_layer                    = nn.Sequential(
+                                                nn.ConvTranspose2d(hidden_dims[-1],
+                                                                   hidden_dims[-1],
+                                                                   kernel_size      = 3,
+                                                                   stride           = 2,
+                                                                   padding          = 1,
+                                                                   output_padding   = 1,
+                                                                   ),
+                                                nn.BatchNorm2d(hidden_dims[-1]),
+                                                nn.LeakyReLU(),
+                                                nn.Conv2d(hidden_dims[-1],
+                                                          out_channels  = 3,
+                                                          kernel_size   = 3,
+                                                          padding       = 1,
+                                                          ),
+                                                self.vae_output_activation
+                                                ).to(self.device)
+        
+    def reparameterize(self,mu:Tensor,log_var:Tensor) -> Tensor:
+        """
+        sample hidden representation from Q(z | x)
+        
+        Inputs
+        ---
+        mu:torch.tensor
+        log_var:torch.tensor
+        
+        Outputs
+        ---
+        z:torch.tensor
+        """
+        std = torch.exp(0.5 * log_var)
+        eps = torch.randn_like(std).to(self.device)
+        # z = mu + std * eps
+        z   = mu + std * eps
+        return z
+    
+    def forward(self,x:Tensor,) -> List[Tensor]:
+        extracted_features      = self.feature_extractor(x)
+        hidden_representation   = self.hidden_layer(extracted_features)
+        image_category          = self.output_layer(hidden_representation)
+        mu                      = self.mu_layer(hidden_representation)
+        log_var                 = self.log_var_layer(hidden_representation)
+        z                       = self.reparameterize(mu, log_var)
+        z                       = z.view(-1,z.shape[1],1,1)
+        conv_transpose          = self.decoder(z)
+        reconstruction          = self.final_layer(conv_transpose)
+        return reconstruction,extracted_features,z,mu,log_var,hidden_representation,image_category
