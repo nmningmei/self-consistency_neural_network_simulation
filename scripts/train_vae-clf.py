@@ -67,7 +67,7 @@ if __name__ == "__main__":
     print_train             = True # print the progresses
     n_epochs                = int(1e3) # max number of epochs
     warmup_epochs           = 5 # we don't save the models in these epochs
-    patience                = 10 # we wait for a number of epochs after the best performance
+    patience                = 20 # we wait for a number of epochs after the best performance
     tol                     = 1e-4 # the difference between the current best and the next best
     n_noise                 = 0 # number of noisy images used in training the classifier
     retrain                 = True # retrain the VAE

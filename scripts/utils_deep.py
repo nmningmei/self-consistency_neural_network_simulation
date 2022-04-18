@@ -1040,10 +1040,10 @@ def clf_vae_train_loop(net:nn.Module,
         ## image classification loss
         image_loss      = compute_image_loss(
                                         image_loss_func = image_loss_func,
-                                        image_category = image_category.to(device),
-                                        labels = batch_labels.to(device),
-                                        device = device,
-                                        n_noise = n_noise,
+                                        image_category  = image_category.to(device),
+                                        labels          = batch_labels.to(device),
+                                        device          = device,
+                                        n_noise         = n_noise,
                                         )
         ## reconstruction loss
         recon_loss      = compute_reconstruction_loss(batch_features.to(device),
@@ -1099,9 +1099,9 @@ def clf_vae_valid_loop(net:nn.Module,
             ## image classification loss
             image_loss      = compute_image_loss(
                                             image_loss_func = image_loss_func,
-                                            image_category = image_category.to(device),
-                                            labels = batch_labels.to(device),
-                                            device = device,
+                                            image_category  = image_category.to(device),
+                                            labels          = batch_labels.to(device),
+                                            device          = device,
                                             )
             ## reconstruction loss
             recon_loss      = compute_reconstruction_loss(batch_features.to(device),
@@ -1135,34 +1135,34 @@ def clf_vae_train_valid(net:nn.Module,
                         beta:float                          = 1.,
                         ):
     torch.random.manual_seed(12345)
-    scheduler1,scheduler2 = schedulers
-    best_valid_loss     = np.inf
-    losses              = []
-    counts              = 0
+    scheduler1,scheduler2   = schedulers
+    best_valid_loss         = np.inf
+    losses                  = []
+    counts                  = 0
     for idx_epoch in range(n_epochs):
-        net,train_loss = clf_vae_train_loop(
-                                net = net,
-                                dataloader = dataloader_train,
-                                optimizers = optimizers,
+        net,train_loss      = clf_vae_train_loop(
+                                net             = net,
+                                dataloader      = dataloader_train,
+                                optimizers      = optimizers,
                                 image_loss_func = image_loss_func,
                                 recon_loss_func = recon_loss_func,
-                                n_noise = n_noise,
-                                device = device,
-                                idx_epoch = idx_epoch,
-                                print_train = print_train,
-                                beta = beta,
+                                n_noise         = n_noise,
+                                device          = device,
+                                idx_epoch       = idx_epoch,
+                                print_train     = print_train,
+                                beta            = beta,
                                 )
         (valid_loss,
          y_true,y_pred,
          image_loss,recon_loss,kld_loss) = clf_vae_valid_loop(
-                                net = net,
-                                dataloader = dataloader_valid,
+                                net             = net,
+                                dataloader      = dataloader_valid,
                                 image_loss_func = image_loss_func,
                                 recon_loss_func = recon_loss_func,
-                                device = device,
-                                idx_epoch = idx_epoch,
-                                print_train = print_train,
-                                beta = beta,
+                                device          = device,
+                                idx_epoch       = idx_epoch,
+                                print_train     = print_train,
+                                beta            = beta,
                                 )
         scheduler1.step(image_loss)
         scheduler2.step(recon_loss + kld_loss)
@@ -1177,12 +1177,18 @@ def clf_vae_train_valid(net:nn.Module,
                                                           f_name            = f_name,
                                                           )
         # calculate accuracy
-        accuracy = torch.sum(y_true.to(device) == y_pred.max(1)[1].to(device)) / y_true.shape[0]
+        try:
+            accuracy = roc_auc_score(y_true.detach().cpu().numpy(),
+                                     y_pred.detach().cpu().numpy()
+                                     )
+        except:
+            accuracy = torch.sum(y_true.to(device) == y_pred.max(1)[1].to(device)) / y_true.shape[0]
         print(f'''
-epoch {idx_epoch+1:3.0f} validation accuracy = {accuracy:2.4f},
-          image loss = {image_loss.detach().cpu().numpy():.4f},
-          VAE loss   = {beta * kld_loss.detach().cpu().numpy():.4f},
-          counts     = {counts}''')
+epoch {idx_epoch+1:3.0f} 
+          validation accuracy = {accuracy:2.4f},
+          image loss          = {image_loss.detach().cpu().numpy():.4f},
+          VAE loss            = {beta * kld_loss.detach().cpu().numpy():.4f},
+          counts              = {counts}''')
         if counts >= patience:#(len(losses) > patience) and (len(set(losses[-patience:])) == 1):
             break
     losses.append(best_valid_loss.detach().cpu().numpy())
