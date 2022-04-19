@@ -853,7 +853,7 @@ class vae_classifier(BaseVAE):
         z:torch.tensor
         """
         std = torch.exp(0.5 * log_var)
-        eps = torch.randn_like(std).to(self.device)
+        eps = torch.randn_like(std,requires_grad=True).to(self.device)
         # z = mu + std * eps
         z   = mu + std * eps
         return z
