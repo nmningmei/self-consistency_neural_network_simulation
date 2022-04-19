@@ -8,16 +8,16 @@ Created on Thu Apr 14 13:00:57 2022
 import os,torch
 from torch import nn,optim
 import numpy as np
+
 from utils_deep import (hidden_activation_functions,
                         dataloader,
-                        optimizer_and_scheduler,
                         simple_augmentations,
-                        clf_vae_train_valid
+                        vae_train_valid,
+                        clf_train_valid
                         )
 from models import (vae_classifier)
 
 
-    
 if __name__ == "__main__":
     dataset_name            = 'CIFAR100'
     experiment_name         = 'vanilla_vae'
@@ -66,10 +66,14 @@ if __name__ == "__main__":
     print_train             = True # print the progresses
     n_epochs                = int(1e3) # max number of epochs
     warmup_epochs           = 5 # we don't save the models in these epochs
-    patience                = 10 # we wait for a number of epochs after the best performance
+    patience                = 20 # we wait for a number of epochs after the best performance
     tol                     = 1e-4 # the difference between the current best and the next best
     n_noise                 = 0 # number of noisy images used in training the classifier
     retrain                 = True # retrain the VAE
+    # testing settings
+    n_noise_levels  = 20
+    max_noise_level = np.log10(100)
+    noise_levels    = np.concatenate([[0],np.logspace(-1,max_noise_level,n_noise_levels)])
     
     latent_units            = hidden_dims[-1] if multi_hidden_layer else hidden_units
     model_args          = dict(pretrained_model_name    = pretrained_model_name,
@@ -77,7 +81,7 @@ if __name__ == "__main__":
                                hidden_activation        = hidden_activation,
                                hidden_dropout           = hidden_dropout,
                                hidden_dims              = hidden_dims,
-                               latent_units             = hidden_dims[-1],
+                               latent_units             = latent_units,
                                vae_output_activation    = vae_output_activation,
                                latent_activation        = latent_activation,
                                in_channels              = 3,
@@ -102,32 +106,36 @@ if __name__ == "__main__":
                                    threshold            = tol,
                                    min_lr               = 1e-8,
                                    )
-    # make transforms
-    transform                           = simple_augmentations(
-                                                image_resize    = image_resize,
-                                                noise_level     = noise_level_train,
-                                                rotation        = rotation,
-                                                gitter_color    = gitter_color,
-                                                )
-    dataloader_train,dataloader_valid   = dataloader(
-                                                dataset_name        = dataset_name,
-                                                transform           = transform,
-                                                train_valid_split   = [45000,5000],
-                                                batch_size          = batch_size,
-                                                shuffle             = True,
-                                                )
-    dataloader_test,_                   = dataloader(
-                                                dataset_name    = dataset_name,
-                                                train           = False,
-                                                transform       = transform,
-                                                batch_size      = batch_size,
-                                                shuffle         = True,
-                                                )
     
-    ###########################################################################
     # build the variational autoencoder
     print('Build CLF-VAE model')
     vae             = vae_classifier(**model_args).to(device)
-    for p in vae.parameters():p.requires_grad == False
+    vae.load_state_dict(torch.load(f_name,map_location = device))
+    # freeze the vae
+    for p in vae.parameters(): p.requires_gard = False
     
-    
+    #
+    with torch.no_grad():
+        for ii,noise_level in enumerate(noise_levels):
+            print(f'noise level = {noise_level:.5f}')
+            # make transforms
+            transform                           = simple_augmentations(
+                                                        image_resize    = image_resize,
+                                                        noise_level     = noise_level,
+                                                        rotation        = rotation,
+                                                        gitter_color    = gitter_color,
+                                                        )
+            dataloader_test,_                   = dataloader(
+                                                        dataset_name    = dataset_name,
+                                                        train           = False,
+                                                        transform       = transform,
+                                                        batch_size      = batch_size,
+                                                        shuffle         = True,
+                                                        )
+            for batch_features,batch_labels in dataloader_test:
+                (reconstruction,
+                 extracted_features,
+                 z,mu,log_var,
+                 hidden_representation,
+                 image_category) = vae(batch_features.to(device))
+                afad

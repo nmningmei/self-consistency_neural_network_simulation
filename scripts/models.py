@@ -686,13 +686,14 @@ class vae_classifier(BaseVAE):
         self.hidden_dims                    = hidden_dims
         self.multi_hidden_layer             = multi_hidden_layer
         self.in_shape                       = in_shape
+        self.retrain_encoder                = retrain_encoder
         
         
         # CNN feature extractor
         torch.manual_seed(12345)
         in_features,feature_extractor  = CNN_feature_extractor(
                                             pretrained_model_name   = self.pretrained_model_name,
-                                            retrain_encoder         = True,
+                                            retrain_encoder         = self.retrain_encoder,
                                             in_shape                = self.in_shape,
                                             device                  = self.device,
                                                                )
@@ -700,6 +701,7 @@ class vae_classifier(BaseVAE):
         self.feature_extractor = feature_extractor.to(self.device)
         # vae
         if self.multi_hidden_layer:
+            print('more dense layers')
             # classifier
             ## hidden layers
             hidden_layer = []
@@ -753,6 +755,7 @@ class vae_classifier(BaseVAE):
             
             
         else:
+            print('direct connection')
             # classifier
             self.hidden_layer = create_hidden_layer(
                                                 layer_type          = self.layer_type,
@@ -789,8 +792,9 @@ class vae_classifier(BaseVAE):
                                                     ).to(self.device)
             self.encoder                        = feature_extractor.to(self.device)
         # Build Decoder
-        hidden_dims = self.hidden_dims.copy()
-        hidden_dims.reverse()
+        if self.multi_hidden_layer:
+            hidden_dims = self.hidden_dims.copy()
+            hidden_dims.reverse()
         modules = [nn.Sequential(
                             nn.ConvTranspose2d(self.latent_units,
                                                hidden_dims[0],

@@ -78,9 +78,10 @@ if __name__ == "__main__":
                                hidden_activation        = hidden_activation,
                                hidden_dropout           = hidden_dropout,
                                hidden_dims              = hidden_dims,
-                               latent_units             = hidden_dims[-1],
+                               latent_units             = latent_units,
                                vae_output_activation    = vae_output_activation,
                                latent_activation        = latent_activation,
+                               retrain_encoder          = retrain_encoder,
                                in_channels              = 3,
                                in_shape                 = [1,3,image_resize,image_resize],
                                device                   = device,
@@ -159,7 +160,7 @@ if __name__ == "__main__":
                                 recon_loss_func = recon_loss_func,
                                 f_name          = f_name,
                                 patience        = patience,
-                                beta            = 10,# since the reconstruction is not ideal, and all we want is the learned sampling distributions, we weight more on the variational loss
+                                beta            = 1,# since the reconstruction is not ideal, and all we want is the learned sampling distributions, we weight more on the variational loss
                                 **train_args
                                 )
     else:
