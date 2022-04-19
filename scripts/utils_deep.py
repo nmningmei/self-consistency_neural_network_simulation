@@ -1082,6 +1082,9 @@ def clf_vae_valid_loop(net:nn.Module,
                        beta:float = 1.,):
     net.eval()
     valid_loss  = 0.
+    image_losses = 0.
+    recon_losses = 0.
+    kld_losses   = 0.
     iterator    = tqdm(enumerate(dataloader))
     y_true      = []
     y_pred      = []
@@ -1103,20 +1106,27 @@ def clf_vae_valid_loop(net:nn.Module,
                                             labels          = batch_labels.to(device),
                                             device          = device,
                                             )
+            image_losses += image_loss
             ## reconstruction loss
             recon_loss      = compute_reconstruction_loss(batch_features.to(device),
                                                           reconstruction.to(device),
                                                           recon_loss_func,
                                                           )
+            recon_losses += recon_loss
             ## KLD loss
             kld_loss        = compute_kl_divergence(z, mu, log_var)
+            kld_losses += beta * kld_loss
             # backpropagation
             loss_batch      = image_loss + recon_loss + beta * kld_loss
             valid_loss += loss_batch
             if print_train:
                 iterator.set_description(f'epoch {idx_epoch+1:3.0f}-{ii + 1:4.0f}/{100*(ii+1)/len(dataloader):2.3f}%,valid loss = {valid_loss/(ii+1):2.6f}')
-    return valid_loss,torch.cat(y_true),torch.cat(y_pred),image_loss,recon_loss,kld_loss
-
+    return (valid_loss/len(dataloader),
+            torch.cat(y_true),
+            torch.cat(y_pred),
+            image_losses/len(dataloader),
+            recon_losses/len(dataloader),
+            kld_losses/len(dataloader))
 def clf_vae_train_valid(net:nn.Module,
                         dataloader_train:data.DataLoader,
                         dataloader_valid:data.DataLoader,
@@ -1187,6 +1197,7 @@ def clf_vae_train_valid(net:nn.Module,
 epoch {idx_epoch+1:3.0f} 
           validation accuracy = {accuracy:2.4f},
           image loss          = {image_loss.detach().cpu().numpy():.4f},
+          reconstruction loss = {recon_loss.detach().cpu().numpy():.4f},
           VAE loss            = {beta * kld_loss.detach().cpu().numpy():.4f},
           counts              = {counts}''')
         if counts >= patience:#(len(losses) > patience) and (len(set(losses[-patience:])) == 1):

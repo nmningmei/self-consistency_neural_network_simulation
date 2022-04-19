@@ -864,7 +864,7 @@ class vae_classifier(BaseVAE):
         image_category          = self.output_layer(hidden_representation)
         mu                      = self.mu_layer(hidden_representation)
         log_var                 = self.log_var_layer(hidden_representation)
-        z                       = self.reparameterize(mu, log_var)
+        z                       = self.latent_activation(self.reparameterize(mu, log_var))
         z                       = z.view(-1,z.shape[1],1,1)
         conv_transpose          = self.decoder(z)
         reconstruction          = self.final_layer(conv_transpose)
