@@ -46,9 +46,9 @@ if __name__ == "__main__":
     # model settings
     pretrained_model_name   = 'vgg19'
     hidden_units            = 256 # hidden layer units
-    hidden_func_name        = 'leaky_relu' # hidden layer activation function
+    hidden_func_name        = 'relu' # hidden layer activation function
     hidden_activation       = hidden_activation_functions(hidden_func_name)
-    latent_func_name        = 'leaky_relu'
+    latent_func_name        = 'leaky_relu' # mu and log_var layer activation function
     latent_activation       = hidden_activation_functions(latent_func_name)
     hidden_dropout          = 0. # hidden layer dropout rate
     hidden_dims             = [hidden_units,
@@ -57,7 +57,7 @@ if __name__ == "__main__":
                                int(hidden_units/8),
                                # int(hidden_units/16),
                                ]# as long as we have 5 layers
-    vae_out_func_name       = 'tanh'
+    vae_out_func_name       = 'sigmoid' # activation function of the reconstruction
     vae_output_activation   = hidden_activation_functions(vae_out_func_name)
     retrain_encoder         = True # retrain the CNN backbone convolutional layers
     multi_hidden_layer      = False # add more dense layer to the classifier and the VAE encoder
@@ -140,7 +140,7 @@ if __name__ == "__main__":
     for p in vae.log_var_layer.parameters():params_vae.append(p)
     for p in vae.decoder.parameters():params_vae.append(p)
     paras_vae       = [p for p in params_vae if p.requires_grad == True]
-    recon_loss_func = nn.MSELoss()
+    recon_loss_func = nn.BCELoss()
     image_loss_func = nn.NLLLoss()
     (optimizer1,
      scheduler1)    = optimizer_and_scheduler(params = params_clf,**optim_args)
@@ -160,7 +160,7 @@ if __name__ == "__main__":
                                 recon_loss_func = recon_loss_func,
                                 f_name          = f_name,
                                 patience        = patience,
-                                beta            = 1,# since the reconstruction is not ideal, and all we want is the learned sampling distributions, we weight more on the variational loss
+                                beta            = 1.,# since the reconstruction is not ideal, and all we want is the learned sampling distributions, we weight more on the variational loss
                                 **train_args
                                 )
     else:

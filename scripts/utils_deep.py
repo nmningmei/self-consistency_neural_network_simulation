@@ -361,9 +361,9 @@ def noise_fuc(x:Tensor,noise_level:float = 1,scale:Tuple = (0,1)) -> Tensor:
         # generator = torch.distributions.normal.Normal(0,noise_level)
         generator = torch.distributions.half_normal.HalfNormal(scale = noise_level,)
         x = x + generator.sample(x.shape)
-    # rescale x back to [0,1]
-    x = (x - x.min()) / (x.max() - x.min())
-    x = x * (scale[1] - scale[0]) + scale[0]
+        # rescale x back to [0,1]
+        x = (x - x.min()) / (x.max() - x.min())
+        x = x * (scale[1] - scale[0]) + scale[0]
     return x
 
 def simple_augmentations(image_resize   = 128,
@@ -393,7 +393,7 @@ def simple_augmentations(image_resize   = 128,
         steps.append(transforms.RandomVerticalFlip(p = 0.5))
         steps.append(transforms.RandomPerspective(p = 0.5))
         steps.append(transforms.RandomAutocontrast(p = 0.5))
-        steps.append(transforms.RandomInvert(p = 0.5))
+        # steps.append(transforms.RandomInvert(p = 0.5))
     elif gitter_color and not rotation:
         steps.append(transforms.RandomCrop((image_resize,image_resize)))
         steps.append(transforms.ColorJitter(brightness = 0.25,
@@ -405,6 +405,7 @@ def simple_augmentations(image_resize   = 128,
     steps.append(transforms.Lambda(lambda x:noise_fuc(x,noise_level)))
     steps.append(transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]))
     # mean=[0., 0., 0.], std=[1., 1., 1.]
+    # mean=[.5,.,5.,5], std=[.225,.225,.225]
     # mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
     transform_steps = transforms.Compose(steps)
     return transform_steps
@@ -508,7 +509,7 @@ def compute_image_loss(image_loss_func:Callable,
                                      labels.to(device))
     return image_loss
 
-def compute_kl_divergence(z:Tensor,mu:Tensor,log_var:Tensor,) -> Tensor:
+def compute_kl_divergence(mu:Tensor,log_var:Tensor,) -> Tensor:
         """
         Q(z|X) has mean of `mu` and std of `exp(log_var)`
         kld = E[log(Q(z|X)) - log(P(z))], where P() is the function P(z|x)
@@ -519,7 +520,7 @@ def compute_kl_divergence(z:Tensor,mu:Tensor,log_var:Tensor,) -> Tensor:
         # 0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
         Inputs
         ---
-        z:torch.tensor
+        
         mu:torch.tensor
         log_var:torch.tensor
         
@@ -1046,12 +1047,13 @@ def clf_vae_train_loop(net:nn.Module,
                                         n_noise         = n_noise,
                                         )
         ## reconstruction loss
-        recon_loss      = compute_reconstruction_loss(batch_features.to(device),
-                                                      reconstruction.to(device),
-                                                      recon_loss_func,
-                                                      )
+        recon_loss      = compute_reconstruction_loss(
+                                                    torch.sigmoid(batch_features.to(device)),
+                                                    reconstruction.to(device),
+                                                    recon_loss_func,
+                                                    )
         ## KLD loss
-        kld_loss        = compute_kl_divergence(z, mu, log_var)
+        kld_loss        = compute_kl_divergence(mu, log_var)
         
         # backpropagation
         loss_batch      = image_loss + recon_loss + beta * kld_loss
@@ -1070,6 +1072,7 @@ def clf_vae_train_loop(net:nn.Module,
         # train_loss += image_loss + recon_loss + beta * kld_loss
         if print_train:
             iterator.set_description(f'epoch {idx_epoch+1:3.0f}-{ii + 1:4.0f}/{100*(ii+1)/len(dataloader):2.3f}%,train loss = {train_loss/(ii+1):2.6f}')
+    
     return net,train_loss
 
 def clf_vae_valid_loop(net:nn.Module,
@@ -1108,13 +1111,14 @@ def clf_vae_valid_loop(net:nn.Module,
                                             )
             image_losses += image_loss
             ## reconstruction loss
-            recon_loss      = compute_reconstruction_loss(batch_features.to(device),
-                                                          reconstruction.to(device),
-                                                          recon_loss_func,
-                                                          )
+            recon_loss      = compute_reconstruction_loss(
+                                                        torch.sigmoid(batch_features.to(device)),
+                                                        reconstruction.to(device),
+                                                        recon_loss_func,
+                                                        )
             recon_losses += recon_loss
             ## KLD loss
-            kld_loss        = compute_kl_divergence(z, mu, log_var)
+            kld_loss        = compute_kl_divergence(mu, log_var)
             kld_losses += beta * kld_loss
             # backpropagation
             loss_batch      = image_loss + recon_loss + beta * kld_loss
