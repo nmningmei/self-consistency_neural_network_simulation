@@ -46,7 +46,7 @@ if __name__ == "__main__":
     # model settings
     pretrained_model_name   = 'vgg19'
     hidden_units            = 256 # hidden layer units
-    hidden_func_name        = 'relu' # hidden layer activation function
+    hidden_func_name        = 'leaky_relu' # hidden layer activation function
     hidden_activation       = hidden_activation_functions(hidden_func_name)
     latent_func_name        = 'leaky_relu'
     latent_activation       = hidden_activation_functions(latent_func_name)
