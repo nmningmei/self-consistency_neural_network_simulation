@@ -8,6 +8,9 @@ Created on Thu Apr 14 13:00:57 2022
 import os,torch
 from torch import nn,optim
 import numpy as np
+import pandas as pd
+import seaborn as sns
+from scipy.spatial import distance
 
 from utils_deep import (hidden_activation_functions,
                         dataloader,
@@ -17,6 +20,7 @@ from utils_deep import (hidden_activation_functions,
                         )
 from models import (vae_classifier)
 
+from matplotlib import pyplot as plt
 
 if __name__ == "__main__":
     dataset_name            = 'CIFAR100'
@@ -60,6 +64,8 @@ if __name__ == "__main__":
     vae_output_activation   = hidden_activation_functions(vae_out_func_name)
     retrain_encoder         = True # retrain the CNN backbone convolutional layers
     multi_hidden_layer      = False # add more dense layer to the classifier and the VAE encoder
+    if multi_hidden_layer:
+        f_name              = f_name.replace('.h5','_deep.h5')
     # train settings
     learning_rate           = 1e-4 # initial learning rate, will be reduced by 10 after warmup epochs
     l2_regularization       = 1e-16 # L2 regularization term, used as weight decay
@@ -115,7 +121,18 @@ if __name__ == "__main__":
     for p in vae.parameters(): p.requires_gard = False
     
     #
+    results = dict(noise_level = [],
+                   accuracy = [],
+                   )
+    df_res = dict(noise_level = [],
+                  y_true = [],
+                  y_pred = [],
+                  y_prob = [],
+                  )
     with torch.no_grad():
+        hidden_representations = []
+        sampled_representations = []
+        distances = []
         for ii,noise_level in enumerate(noise_levels):
             print(f'noise level = {noise_level:.5f}')
             # make transforms
@@ -132,10 +149,53 @@ if __name__ == "__main__":
                                                         batch_size      = batch_size,
                                                         shuffle         = True,
                                                         )
+            y_true,y_pred,y_prob = [],[],[]
+            
             for batch_features,batch_labels in dataloader_test:
                 (reconstruction,
                  extracted_features,
                  z,mu,log_var,
                  hidden_representation,
                  image_category) = vae(batch_features.to(device))
-                afad
+                y_true.append(batch_labels)
+                y_pred.append(image_category.max(1)[1])
+                y_prob.append(image_category.max(1)[0])
+                hidden_representations.append(hidden_representation)
+                sampled_representations.append(z.view(z.shape[0],-1))
+                distances.append(np.diag(distance.cdist(hidden_representations[-1].detach().cpu().numpy(),
+                                                        sampled_representations[-1].detach().cpu().numpy(),
+                                                        metric='correlation')))
+            y_true = torch.cat(y_true).detach().cpu().numpy()
+            y_pred = torch.cat(y_pred).detach().cpu().numpy()
+            y_prob = torch.cat(y_prob).detach().cpu().numpy()
+            
+            accuracy = np.sum(y_true == y_pred) / y_true.shape[0]
+            
+            results['noise_level'].append(noise_level)
+            results['accuracy'].append(accuracy)
+            
+            for _y_true,_y_pred,_y_prob in zip(y_true,y_pred,y_prob):
+                df_res['noise_level'].append(noise_level)
+                df_res['y_true'].append(_y_true)
+                df_res['y_pred'].append(_y_pred)
+                df_res['y_prob'].append(_y_prob)
+    hidden_representations = torch.cat(hidden_representations).detach().cpu().numpy()
+    sampled_representations = torch.cat(sampled_representations).detach().cpu().numpy()
+    distances = np.concatenate(distances)
+    results = pd.DataFrame(results)
+    df_res = pd.DataFrame(df_res)
+    df_res['acc'] = df_res['y_true'] == df_res['y_pred']
+    
+    fig,axes = plt.subplots(figsize = (16,16),
+                            nrows = 2,
+                            ncols = 2,
+                            sharey = True,
+                            sharex = True,
+                            )
+    for (noise_level,matched),df_sub in df_res.groupby(['noise_level','acc']):
+        if matched:
+            axes[0][0] = sns.kdeplot(df_sub['y_prob'],alpha = .5,ax = axes[0][0])
+            axes[0][1] = sns.kdeplot(distances[df_sub.index],alpha = .5,ax = axes[0][1])
+        else:
+            axes[1][0] = sns.kdeplot(df_sub['y_prob'],alpha = .5,ax = axes[1][0])
+            axes[1][1] = sns.kdeplot(distances[df_sub.index],alpha = .5,ax = axes[1][1])

@@ -48,8 +48,8 @@ if __name__ == "__main__":
     hidden_units            = 256 # hidden layer units
     hidden_func_name        = 'relu' # hidden layer activation function
     hidden_activation       = hidden_activation_functions(hidden_func_name)
-    latent_func_name        = 'leaky_relu' # mu and log_var layer activation function
-    latent_activation       = hidden_activation_functions(latent_func_name)
+    latent_func_names       = ['tanh','tanh'] # mu and log_var layer activation function
+    latent_activations      = [hidden_activation_functions(item) for item in latent_func_names]
     hidden_dropout          = 0. # hidden layer dropout rate
     hidden_dims             = [hidden_units,
                                int(hidden_units/2),
@@ -61,13 +61,15 @@ if __name__ == "__main__":
     vae_output_activation   = hidden_activation_functions(vae_out_func_name)
     retrain_encoder         = True # retrain the CNN backbone convolutional layers
     multi_hidden_layer      = False # add more dense layer to the classifier and the VAE encoder
+    if multi_hidden_layer:
+        f_name              = f_name.replace('.h5','_deep.h5')
     # train settings
     learning_rate           = 1e-4 # initial learning rate, will be reduced by 10 after warmup epochs
     l2_regularization       = 1e-16 # L2 regularization term, used as weight decay
     print_train             = True # print the progresses
     n_epochs                = int(1e3) # max number of epochs
-    warmup_epochs           = 5 # we don't save the models in these epochs
-    patience                = 20 # we wait for a number of epochs after the best performance
+    warmup_epochs           = 25 # we don't save the models in these epochs
+    patience                = 10 # we wait for a number of epochs after the best performance
     tol                     = 1e-4 # the difference between the current best and the next best
     n_noise                 = 0 # number of noisy images used in training the classifier
     retrain                 = True # retrain the VAE
@@ -80,7 +82,7 @@ if __name__ == "__main__":
                                hidden_dims              = hidden_dims,
                                latent_units             = latent_units,
                                vae_output_activation    = vae_output_activation,
-                               latent_activation        = latent_activation,
+                               latent_activations       = latent_activations,
                                retrain_encoder          = retrain_encoder,
                                in_channels              = 3,
                                in_shape                 = [1,3,image_resize,image_resize],
@@ -99,7 +101,7 @@ if __name__ == "__main__":
     optim_args              = dict(learning_rate        = learning_rate,
                                    l2_regularization    = l2_regularization,
                                    mode                 = 'min',
-                                   factor               = .5,
+                                   factor               = .5,# factor of reducing the learning rate for the scheduler
                                    patience             = int(patience/2),
                                    threshold            = tol,
                                    min_lr               = 1e-8,
@@ -140,7 +142,7 @@ if __name__ == "__main__":
     for p in vae.log_var_layer.parameters():params_vae.append(p)
     for p in vae.decoder.parameters():params_vae.append(p)
     paras_vae       = [p for p in params_vae if p.requires_grad == True]
-    recon_loss_func = nn.BCELoss()
+    recon_loss_func = nn.MSELoss()
     image_loss_func = nn.NLLLoss()
     (optimizer1,
      scheduler1)    = optimizer_and_scheduler(params = params_clf,**optim_args)
@@ -150,7 +152,7 @@ if __name__ == "__main__":
     # train the VAE
     if not os.path.exists(f_name) or retrain:
         print('Train the model')
-        vae,losses      = clf_vae_train_valid(
+        vae,losses  = clf_vae_train_valid(
                                 vae,
                                 dataloader_train,
                                 dataloader_valid,

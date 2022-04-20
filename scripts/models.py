@@ -9,11 +9,10 @@ https://github.com/AntixK/PyTorch-VAE
 I didn't know spyder has a quick documentation feature
 """
 import torch
-from torch import functional as F
-from utils_deep import (candidates,
-                        define_type,
-                        hidden_activation_functions
-                        )
+from torchvision          import transforms
+from utils_deep           import (candidates,
+                                  define_type
+                                  )
 
 from typing import List, Callable, Union, Any, TypeVar, Tuple
 from torch import nn
@@ -614,7 +613,7 @@ class vae_classifier(BaseVAE):
                  vae_output_activation          = nn.Tanhshrink(),
                  clf_output_activation          = nn.Softmax(dim = -1),
                  latent_units                   = 300,
-                 latent_activation              = nn.Tanh(),
+                 latent_activations             = [nn.Tanh(),nn.ReLU()],
                  in_channels:int                = 3,
                  in_shape:Tuple                 = (1,3,128,128),
                  layer_type:str                 = 'linear',
@@ -640,13 +639,13 @@ class vae_classifier(BaseVAE):
             This is used when only 1 hidden layer for the image classifier.. The default is 0..
         output_units : int, optional
             The output dimension of the image classifier. The default is 10.
-        vae_output_activation : TYPE, optional
+        vae_output_activation : nn.Module, optional
             activation funtion of the reconstruction. The default is nn.Tanhshrink().
-        clf_output_activation : TYPE, optional
+        clf_output_activation : nn.Module, optional
             activation function for the image classifier. The default is nn.Softmax(dim = -1).
         latent_units : TYPE, optional
             Dimension of the mu and log_var layers. The default is 300.
-        latent_activation : TYPE, optional
+        latent_activations : List of nn.Module
             activation functions for the mu and log_var layers. The default is nn.Tanh().
         in_channels : int, optional
             DESCRIPTION. The default is 3.
@@ -679,7 +678,7 @@ class vae_classifier(BaseVAE):
         self.vae_output_activation          = vae_output_activation
         self.clf_output_activation          = clf_output_activation
         self.latent_units                   = latent_units
-        self.latent_activation              = latent_activation
+        self.latent_activations             = latent_activations
         self.layer_type                     = layer_type
         self.device                         = device
         self.in_channels                    = in_channels
@@ -687,7 +686,12 @@ class vae_classifier(BaseVAE):
         self.multi_hidden_layer             = multi_hidden_layer
         self.in_shape                       = in_shape
         self.retrain_encoder                = retrain_encoder
-        
+        # in the dataloader, we convert the images to [0,1] using ToTensor()
+        # and then we normalize the images using Normalizer()
+        # So, here we could rescale the reconstructed images using Sigmoid()
+        # and then we normalize them as we did in the dataloader
+        self.normalize                      = transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                                                   std=[0.229, 0.224, 0.225])
         
         # CNN feature extractor
         torch.manual_seed(12345)
@@ -739,7 +743,7 @@ class vae_classifier(BaseVAE):
                                                     layer_type          = self.layer_type,
                                                     input_units         = self.hidden_dims[-1],
                                                     output_units        = self.latent_units,
-                                                    output_activation   = self.latent_activation,
+                                                    output_activation   = self.latent_activations[0],
                                                     output_dropout      = self.hidden_dropout,
                                                     device              = self.device,
                                                     ).to(self.device)
@@ -748,7 +752,7 @@ class vae_classifier(BaseVAE):
                                                     layer_type          = self.layer_type,
                                                     input_units         = self.hidden_dims[-1],
                                                     output_units        = self.latent_units,
-                                                    output_activation   = self.latent_activation,
+                                                    output_activation   = self.latent_activations[1],
                                                     output_dropout      = self.hidden_dropout,
                                                     device              = self.device,
                                                     ).to(self.device)
@@ -777,7 +781,7 @@ class vae_classifier(BaseVAE):
                                                     layer_type          = self.layer_type,
                                                     input_units         = self.hidden_units,
                                                     output_units        = self.latent_units,
-                                                    output_activation   = self.latent_activation,
+                                                    output_activation   = self.latent_activations[0],
                                                     output_dropout      = self.hidden_dropout,
                                                     device              = self.device,
                                                     ).to(self.device)
@@ -786,7 +790,7 @@ class vae_classifier(BaseVAE):
                                                     layer_type          = self.layer_type,
                                                     input_units         = self.hidden_units,
                                                     output_units        = self.latent_units,
-                                                    output_activation   = self.latent_activation,
+                                                    output_activation   = self.latent_activations[1],
                                                     output_dropout      = self.hidden_dropout,
                                                     device              = self.device,
                                                     ).to(self.device)
@@ -852,10 +856,15 @@ class vae_classifier(BaseVAE):
         ---
         z:torch.tensor
         """
-        std = torch.exp(0.5 * log_var)
-        eps = torch.randn_like(std,requires_grad=True).to(self.device)
-        # z = mu + std * eps
-        z   = mu + std * eps
+        # std = torch.exp(0.5 * log_var)
+        # eps = torch.randn_like(std,requires_grad=True).to(self.device)
+        # # z = mu + std * eps
+        # z   = mu + std * eps
+        
+        vector_size = log_var.size()
+        eps = torch.autograd.Variable(torch.FloatTensor(vector_size).normal_()).to(self.device)
+        std = log_var.mul(0.5).exp_()
+        z = eps.mul(std).add_(mu)
         return z
     
     def forward(self,x:Tensor,) -> List[Tensor]:
@@ -864,8 +873,8 @@ class vae_classifier(BaseVAE):
         image_category          = self.output_layer(hidden_representation)
         mu                      = self.mu_layer(hidden_representation)
         log_var                 = self.log_var_layer(hidden_representation)
-        z                       = self.latent_activation(self.reparameterize(mu, log_var))
-        z                       = z.view(-1,z.shape[1],1,1)
+        z                       = self.reparameterize(mu, log_var)
+        z                       = z.view(z.shape[0],z.shape[1],1,1)
         conv_transpose          = self.decoder(z)
-        reconstruction          = self.final_layer(conv_transpose)
+        reconstruction          = self.normalize(self.final_layer(conv_transpose))
         return reconstruction,extracted_features,z,mu,log_var,hidden_representation,image_category

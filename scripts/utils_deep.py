@@ -20,26 +20,25 @@ import pandas as pd
 import numpy  as np
 
 import torch
-from torch          import nn,no_grad
+from torch          import nn
 from torch.utils    import data
 from torch.nn       import functional as F
 from torch          import optim
-from torch.autograd import Variable
 
 from torchvision.datasets import ImageFolder
 from torchvision          import transforms,datasets
 from torchvision          import models as Tmodels
 
-from sklearn                 import metrics
-from sklearn.preprocessing   import StandardScaler
-from sklearn.svm             import LinearSVC,SVC
-from sklearn.decomposition   import PCA
-from sklearn.pipeline        import make_pipeline
-from sklearn.model_selection import StratifiedShuffleSplit,cross_validate,permutation_test_score
-from sklearn.calibration     import CalibratedClassifierCV
-from sklearn.linear_model    import LogisticRegression
-from sklearn.utils           import shuffle as sk_shuffle
-from sklearn.ensemble        import RandomForestClassifier
+# from sklearn                 import metrics
+# from sklearn.preprocessing   import StandardScaler
+# from sklearn.svm             import LinearSVC,SVC
+# from sklearn.decomposition   import PCA
+# from sklearn.pipeline        import make_pipeline
+# from sklearn.model_selection import StratifiedShuffleSplit,cross_validate,permutation_test_score
+# from sklearn.calibration     import CalibratedClassifierCV
+# from sklearn.linear_model    import LogisticRegression
+# from sklearn.utils           import shuffle as sk_shuffle
+# from sklearn.ensemble        import RandomForestClassifier
 from sklearn.metrics         import roc_auc_score
 
 def standard_dataset(generator:datasets,
@@ -496,7 +495,7 @@ def compute_image_loss(image_loss_func:Callable,
         labels = F.one_hot(labels,num_classes = num_classes,)
         labels = labels.float()
         if n_noise > 0:
-            noisy_labels    = torch.ones(labels.shape) * 0.5
+            noisy_labels    = torch.ones(labels.shape) * (1/num_classes)
             noisy_labels    = noisy_labels[:n_noise]
             labels          = torch.cat([labels.to(device),noisy_labels.to(device)])
         # print(image_category.shape,labels.shape)
@@ -1048,7 +1047,7 @@ def clf_vae_train_loop(net:nn.Module,
                                         )
         ## reconstruction loss
         recon_loss      = compute_reconstruction_loss(
-                                                    torch.sigmoid(batch_features.to(device)),
+                                                    batch_features.to(device),
                                                     reconstruction.to(device),
                                                     recon_loss_func,
                                                     )
@@ -1064,12 +1063,6 @@ def clf_vae_train_loop(net:nn.Module,
         # record the loss of a mini-batch
         train_loss += loss_batch
         
-        # image_loss.backward(retain_graph = True)
-        # vae_loss = recon_loss + beta * kld_loss
-        # vae_loss.backward()
-        # optimizer1.step()
-        # optimizer2.step()
-        # train_loss += image_loss + recon_loss + beta * kld_loss
         if print_train:
             iterator.set_description(f'epoch {idx_epoch+1:3.0f}-{ii + 1:4.0f}/{100*(ii+1)/len(dataloader):2.3f}%,train loss = {train_loss/(ii+1):2.6f}')
     
@@ -1112,7 +1105,7 @@ def clf_vae_valid_loop(net:nn.Module,
             image_losses += image_loss
             ## reconstruction loss
             recon_loss      = compute_reconstruction_loss(
-                                                        torch.sigmoid(batch_features.to(device)),
+                                                        batch_features.to(device),
                                                         reconstruction.to(device),
                                                         recon_loss_func,
                                                         )
@@ -1178,8 +1171,9 @@ def clf_vae_train_valid(net:nn.Module,
                                 print_train     = print_train,
                                 beta            = beta,
                                 )
-        scheduler1.step(image_loss)
-        scheduler2.step(recon_loss + kld_loss)
+        if idx_epoch > warmup_epochs:
+            scheduler1.step(image_loss)
+            scheduler2.step(recon_loss + kld_loss)
         best_valid_loss,counts = determine_training_stops(net,
                                                           idx_epoch,
                                                           warmup_epochs,
@@ -1202,7 +1196,7 @@ epoch {idx_epoch+1:3.0f}
           validation accuracy = {accuracy:2.4f},
           image loss          = {image_loss.detach().cpu().numpy():.4f},
           reconstruction loss = {recon_loss.detach().cpu().numpy():.4f},
-          VAE loss            = {beta * kld_loss.detach().cpu().numpy():.4f},
+          VAE loss            = {kld_loss.detach().cpu().numpy():.4f},
           counts              = {counts}''')
         if counts >= patience:#(len(losses) > patience) and (len(set(losses[-patience:])) == 1):
             break
