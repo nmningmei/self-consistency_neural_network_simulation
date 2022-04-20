@@ -48,7 +48,7 @@ if __name__ == "__main__":
     hidden_units            = 256 # hidden layer units
     hidden_func_name        = 'relu' # hidden layer activation function
     hidden_activation       = hidden_activation_functions(hidden_func_name)
-    latent_func_names       = ['tanh','tanh'] # mu and log_var layer activation function
+    latent_func_names       = ['leaky_relu','leaky_relu'] # mu and log_var layer activation function
     latent_activations      = [hidden_activation_functions(item) for item in latent_func_names]
     hidden_dropout          = 0. # hidden layer dropout rate
     hidden_dims             = [hidden_units,
@@ -68,8 +68,8 @@ if __name__ == "__main__":
     l2_regularization       = 1e-16 # L2 regularization term, used as weight decay
     print_train             = True # print the progresses
     n_epochs                = int(1e3) # max number of epochs
-    warmup_epochs           = 25 # we don't save the models in these epochs
-    patience                = 10 # we wait for a number of epochs after the best performance
+    warmup_epochs           = 5 # we don't save the models in these epochs
+    patience                = 50 # we wait for a number of epochs after the best performance
     tol                     = 1e-4 # the difference between the current best and the next best
     n_noise                 = 0 # number of noisy images used in training the classifier
     retrain                 = True # retrain the VAE
@@ -102,7 +102,7 @@ if __name__ == "__main__":
                                    l2_regularization    = l2_regularization,
                                    mode                 = 'min',
                                    factor               = .5,# factor of reducing the learning rate for the scheduler
-                                   patience             = int(patience/2),
+                                   patience             = 10,
                                    threshold            = tol,
                                    min_lr               = 1e-8,
                                    )
