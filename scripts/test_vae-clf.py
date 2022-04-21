@@ -51,8 +51,8 @@ if __name__ == "__main__":
     hidden_units            = 256 # hidden layer units
     hidden_func_name        = 'relu' # hidden layer activation function
     hidden_activation       = hidden_activation_functions(hidden_func_name)
-    latent_func_name        = 'leaky_relu'
-    latent_activation       = hidden_activation_functions(latent_func_name)
+    latent_func_names       = ['leaky_relu','leaky_relu'] # mu and log_var layer activation function
+    latent_activations      = [hidden_activation_functions(item) for item in latent_func_names]
     hidden_dropout          = 0. # hidden layer dropout rate
     hidden_dims             = [hidden_units,
                                int(hidden_units/2),
@@ -60,7 +60,7 @@ if __name__ == "__main__":
                                int(hidden_units/8),
                                # int(hidden_units/16),
                                ]# as long as we have 5 layers
-    vae_out_func_name       = 'tanh'
+    vae_out_func_name       = 'sigmoid' # activation function of the reconstruction
     vae_output_activation   = hidden_activation_functions(vae_out_func_name)
     retrain_encoder         = True # retrain the CNN backbone convolutional layers
     multi_hidden_layer      = False # add more dense layer to the classifier and the VAE encoder
@@ -68,14 +68,16 @@ if __name__ == "__main__":
         f_name              = f_name.replace('.h5','_deep.h5')
     # train settings
     learning_rate           = 1e-4 # initial learning rate, will be reduced by 10 after warmup epochs
-    l2_regularization       = 1e-16 # L2 regularization term, used as weight decay
+    l2_regularization       = 1e-32 # L2 regularization term, used as weight decay
     print_train             = True # print the progresses
     n_epochs                = int(1e3) # max number of epochs
     warmup_epochs           = 5 # we don't save the models in these epochs
-    patience                = 20 # we wait for a number of epochs after the best performance
+    patience                = 50 # we wait for a number of epochs after the best performance
     tol                     = 1e-4 # the difference between the current best and the next best
     n_noise                 = 0 # number of noisy images used in training the classifier
     retrain                 = True # retrain the VAE
+    
+    latent_units            = hidden_dims[-1] if multi_hidden_layer else hidden_units
     # testing settings
     n_noise_levels  = 20
     max_noise_level = np.log10(100)
@@ -89,7 +91,8 @@ if __name__ == "__main__":
                                hidden_dims              = hidden_dims,
                                latent_units             = latent_units,
                                vae_output_activation    = vae_output_activation,
-                               latent_activation        = latent_activation,
+                               latent_activations       = latent_activations,
+                               retrain_encoder          = retrain_encoder,
                                in_channels              = 3,
                                in_shape                 = [1,3,image_resize,image_resize],
                                device                   = device,
@@ -164,7 +167,7 @@ if __name__ == "__main__":
                 sampled_representations.append(z.view(z.shape[0],-1))
                 distances.append(np.diag(distance.cdist(hidden_representations[-1].detach().cpu().numpy(),
                                                         sampled_representations[-1].detach().cpu().numpy(),
-                                                        metric='correlation')))
+                                                        metric='minkowski',p = 2)))
             y_true = torch.cat(y_true).detach().cpu().numpy()
             y_pred = torch.cat(y_pred).detach().cpu().numpy()
             y_prob = torch.cat(y_prob).detach().cpu().numpy()
@@ -189,8 +192,8 @@ if __name__ == "__main__":
     fig,axes = plt.subplots(figsize = (16,16),
                             nrows = 2,
                             ncols = 2,
-                            sharey = True,
-                            sharex = True,
+                            sharey = False,
+                            sharex = False,
                             )
     for (noise_level,matched),df_sub in df_res.groupby(['noise_level','acc']):
         if matched:

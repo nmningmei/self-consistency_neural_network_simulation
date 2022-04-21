@@ -65,7 +65,7 @@ if __name__ == "__main__":
         f_name              = f_name.replace('.h5','_deep.h5')
     # train settings
     learning_rate           = 1e-4 # initial learning rate, will be reduced by 10 after warmup epochs
-    l2_regularization       = 1e-16 # L2 regularization term, used as weight decay
+    l2_regularization       = 1e-32 # L2 regularization term, used as weight decay
     print_train             = True # print the progresses
     n_epochs                = int(1e3) # max number of epochs
     warmup_epochs           = 5 # we don't save the models in these epochs
