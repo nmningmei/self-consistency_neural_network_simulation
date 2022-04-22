@@ -22,15 +22,18 @@ from models import (vae_classifier)
 if __name__ == "__main__":
     dataset_name            = None
     experiment_name         = 'clf+vae'
-    train_root              = '../data/Konklab'
+    train_root              = '../data/greyscaled'
     valid_root              = '../data/experiment_images_greyscaled'
     test_root               = '../data/metasema_images'
     model_dir               = os.path.join('../models',experiment_name)
+    figure_dir              = os.path.join('../figures',experiment_name)
     f_name                  = os.path.join(model_dir,'clf-vae.h5')
     if not os.path.exists(model_dir):
         os.mkdir(model_dir)
+    if not os.path.exists(figure_dir):
+        os.mkdir(figure_dir)
     # image setting
-    batch_size              = 32 # batch size for each epoch
+    batch_size              = 16 # batch size for each epoch
     image_resize            = 128 # image hight
     noise_level_train       = 1e-3 # noise level in training
     noise_level_test        = 0. # noise level in testing
@@ -48,7 +51,7 @@ if __name__ == "__main__":
     hidden_units            = 256 # hidden layer units
     hidden_func_name        = 'relu' # hidden layer activation function
     hidden_activation       = hidden_activation_functions(hidden_func_name)
-    latent_func_names       = ['leaky_relu','leaky_relu'] # mu and log_var layer activation function
+    latent_func_names       = ['tanh','tanh'] # mu and log_var layer activation function
     latent_activations      = [hidden_activation_functions(item) for item in latent_func_names]
     hidden_dropout          = 0. # hidden layer dropout rate
     hidden_dims             = [hidden_units,
@@ -58,13 +61,13 @@ if __name__ == "__main__":
                                int(hidden_units/16),
                                ]
     output_units            = 2
-    vae_out_func_name       = 'sigmoid' # activation function of the reconstruction
+    vae_out_func_name       = hidden_func_name#'relu' # activation function of the reconstruction
     vae_output_activation   = hidden_activation_functions(vae_out_func_name)
-    retrain_encoder         = True # retrain the CNN backbone convolutional layers
-    multi_hidden_layer      = False # add more dense layer to the classifier and the VAE encoder
+    retrain_encoder         = False # retrain the CNN backbone convolutional layers
+    multi_hidden_layer      = True # add more dense layer to the classifier and the VAE encoder
     if multi_hidden_layer:
         f_name              = f_name.replace('.h5','_deep.h5')
-    latent_units            = hidden_dims[-1] if multi_hidden_layer else 128
+    latent_units            = hidden_dims[-1] if multi_hidden_layer else int(hidden_units/2)
     # train settings
     learning_rate           = 1e-4 # initial learning rate, will be reduced by 10 after warmup epochs
     l2_regularization       = 1e-4 # L2 regularization term, used as weight decay
@@ -73,9 +76,12 @@ if __name__ == "__main__":
     warmup_epochs           = 10 # we don't save the models in these epochs
     patience                = 20 # we wait for a number of epochs after the best performance
     tol                     = 1e-4 # the difference between the current best and the next best
-    n_noise                 = 0 # number of noisy images used in training the classifier
+    n_noise                 = int(batch_size/8) # number of noisy images used in training the classifier
     retrain                 = True # retrain the VAE
-    
+    # testing settings
+    n_noise_levels          = 50
+    max_noise_level         = np.log10(1000)
+    noise_levels            = np.concatenate([[0],np.logspace(-2,max_noise_level,n_noise_levels)])
     
     model_args          = dict(pretrained_model_name    = pretrained_model_name,
                                hidden_units             = hidden_units,
@@ -153,7 +159,10 @@ if __name__ == "__main__":
     print('Build CLF-VAE model')
     vae             = vae_classifier(**model_args).to(device)
     # CNN + hidden_layer + output_layer
-    params_clf      = [p for p in vae.encoder.parameters()]
+    if retrain_encoder:
+        params_clf  = [p for p in vae.encoder.parameters()]
+    else:
+        params_clf  = []
     for p in vae.hidden_layer.parameters():params_clf.append(p)
     for p in vae.output_layer.parameters():params_clf.append(p)
     params_clf      = [p for p in params_clf if p.requires_grad == True]
@@ -162,8 +171,8 @@ if __name__ == "__main__":
     for p in vae.log_var_layer.parameters():params_vae.append(p)
     for p in vae.decoder.parameters():params_vae.append(p)
     paras_vae       = [p for p in params_vae if p.requires_grad == True]
-    recon_loss_func = nn.MSELoss()
-    image_loss_func = nn.NLLLoss()
+    recon_loss_func = nn.CosineEmbeddingLoss()
+    image_loss_func = nn.BCELoss()
     (optimizer1,
      scheduler1)    = optimizer_and_scheduler(params = params_clf,**optim_args)
     (optimizer2,

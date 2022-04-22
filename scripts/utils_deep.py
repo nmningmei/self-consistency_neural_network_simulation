@@ -137,7 +137,7 @@ class customizedDataset(ImageFolder):
 def data_loader(data_root:str,
                 augmentations:transforms    = None,
                 batch_size:int              = 8,
-                num_workers:int             = 2,
+                num_workers:int             = 1,
                 shuffle:bool                = True,
                 return_path:bool            = False,
                 )->data.DataLoader:
@@ -465,7 +465,7 @@ def compute_image_loss(image_loss_func:Callable,
                        labels:Tensor,
                        device:str,
                        n_noise:int      = 0,
-                       num_classes:int  = 10,
+                       num_classes:int  = 2,
                        ) -> Tensor:
     """
     Compute the loss of predicting the image categories
@@ -530,8 +530,24 @@ def compute_kl_divergence(mu:Tensor,log_var:Tensor,) -> Tensor:
         KLD_loss = torch.mean(-0.5 * torch.sum(1 + log_var - mu ** 2 - log_var.exp(), dim = 1), dim = 0)
         return KLD_loss
     
-def compute_reconstruction_loss(x:Tensor,reconstruct:Tensor,loss_func:nn.Module,) -> Tensor:
-    return loss_func(x,reconstruct)
+def compute_reconstruction_loss(hidden_representation:Tensor,
+                                reconstruct:Tensor,
+                                loss_func:nn.Module,
+                                device = 'cpu') -> Tensor:
+    if "similar or dissimilar" in loss_func.__doc__:
+        """
+        So the reconstructed tensor should be similar to the hidden representation
+        but disimilar from a random tensor
+        """
+        concat_recon = torch.cat([reconstruct.to(device),reconstruct.to(device)])
+        dist_noise = torch.distributions.normal.Normal(0,1,)
+        concat_hidden = torch.cat([hidden_representation.to(device),
+                                   dist_noise.sample(hidden_representation.shape).to(device)])
+        y = torch.cat([torch.ones(hidden_representation.shape[0]),
+                       torch.ones(hidden_representation.shape[0]) * -1])
+        return loss_func(concat_recon.to(device),concat_hidden.to(device),y.to(device))
+    else:
+        return loss_func(reconstruct.to(device),hidden_representation.to(device))
 
 def vae_train_loop(net,
                    dataloader,
@@ -1047,9 +1063,10 @@ def clf_vae_train_loop(net:nn.Module,
                                         )
         ## reconstruction loss
         recon_loss      = compute_reconstruction_loss(
-                                                    hidden_representation.to(device),
-                                                    reconstruction.to(device),
+                                                    hidden_representation,
+                                                    reconstruction,
                                                     recon_loss_func,
+                                                    device,
                                                     )
         ## KLD loss
         kld_loss        = compute_kl_divergence(mu, log_var)
@@ -1105,16 +1122,17 @@ def clf_vae_valid_loop(net:nn.Module,
             image_losses += image_loss
             ## reconstruction loss
             recon_loss      = compute_reconstruction_loss(
-                                                    hidden_representation.to(device),
-                                                    reconstruction.to(device),
-                                                    recon_loss_func,
+                                                        hidden_representation,
+                                                        reconstruction,
+                                                        recon_loss_func,
+                                                        device,
                                                         )
             recon_losses += recon_loss
             ## KLD loss
             kld_loss        = compute_kl_divergence(mu, log_var)
             kld_losses += beta * kld_loss
-            # backpropagation
-            loss_batch      = image_loss + recon_loss + beta * kld_loss
+            # losses
+            loss_batch      = image_loss + recon_loss# + beta * kld_loss
             valid_loss += loss_batch
             if print_train:
                 iterator.set_description(f'epoch {idx_epoch+1:3.0f}-{ii + 1:4.0f}/{100*(ii+1)/len(dataloader):2.3f}%,valid loss = {valid_loss/(ii+1):2.6f}')
