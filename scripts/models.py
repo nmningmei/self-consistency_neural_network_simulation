@@ -702,7 +702,7 @@ class vae_classifier(BaseVAE):
                                             device                  = self.device,
                                                                )
         self.in_features = in_features
-        self.feature_extractor = feature_extractor.to(self.device)
+        feature_extractor = feature_extractor.to(self.device)
         # vae
         if self.multi_hidden_layer:
             print('more dense layers')
@@ -728,16 +728,16 @@ class vae_classifier(BaseVAE):
                                             device              = self.device,
                                             ).to(device)
                                     )
-            self.hidden_layer = nn.Sequential(*hidden_layer).to(self.device)
+            self.hidden_layer                   = nn.Sequential(*hidden_layer).to(self.device)
             ## output layer
-            self.output_layer = nn.Sequential(
-                                            nn.Linear(self.hidden_dims[-1],
-                                                      self.output_units),
-                                            self.clf_output_activation
-                                            ).to(self.device)
+            self.output_layer                   = nn.Sequential(
+                                                        nn.Linear(self.hidden_dims[-1],
+                                                                  self.output_units),
+                                                        self.clf_output_activation
+                                                        ).to(self.device)
             
-            ## we don't a particular encoder in this case
-            
+            # encoder
+            self.encoder                        = feature_extractor.to(self.device)
             ## the mu layer
             self.mu_layer                       = create_hidden_layer(
                                                     layer_type          = self.layer_type,
@@ -756,7 +756,15 @@ class vae_classifier(BaseVAE):
                                                     output_dropout      = self.hidden_dropout,
                                                     device              = self.device,
                                                     ).to(self.device)
-            
+            # Build Decoder
+            self.decoder                        = create_hidden_layer(
+                                                    layer_type          = self.layer_type,
+                                                    input_units         = self.hidden_dims[-1],
+                                                    output_units        = self.latent_units,
+                                                    output_activation   = self.vae_output_activation,
+                                                    output_dropout      = self.hidden_dropout,
+                                                    device              = self.device,
+                                                    ).to(self.device)
             
         else:
             print('direct connection')
@@ -795,53 +803,82 @@ class vae_classifier(BaseVAE):
                                                     device              = self.device,
                                                     ).to(self.device)
             self.encoder                        = feature_extractor.to(self.device)
-        # Build Decoder
-        if self.multi_hidden_layer:
-            hidden_dims = self.hidden_dims.copy()
-            hidden_dims.reverse()
-        modules = [nn.Sequential(
-                            nn.ConvTranspose2d(self.latent_units,
-                                               hidden_dims[0],
-                                               kernel_size      = 3,
-                                               stride           = 2,
-                                               padding          = 1,
-                                               output_padding   = 1,
-                                               ),
-                            nn.BatchNorm2d(hidden_dims[0]),
-                            nn.LeakyReLU())
-            ]
-        for ii in range(len(hidden_dims) - 1):
-            modules.append(
-                    nn.Sequential(
-                            nn.ConvTranspose2d(hidden_dims[ii],
-                                               hidden_dims[ii + 1],
-                                               kernel_size      = 3,
-                                               stride           = 2,
-                                               padding          = 1,
-                                               output_padding   = 1,
-                                               ),
-                            nn.BatchNorm2d(hidden_dims[ii + 1]),
-                            nn.LeakyReLU()
-                                )
-                        )
-        self.decoder                        = nn.Sequential(*modules).to(self.device)
-        self.final_layer                    = nn.Sequential(
-                                                nn.ConvTranspose2d(hidden_dims[-1],
-                                                                   hidden_dims[-1],
-                                                                   kernel_size      = 3,
-                                                                   stride           = 2,
-                                                                   padding          = 1,
-                                                                   output_padding   = 1,
-                                                                   ),
-                                                nn.BatchNorm2d(hidden_dims[-1]),
-                                                nn.LeakyReLU(),
-                                                nn.Conv2d(hidden_dims[-1],
-                                                          out_channels  = 3,
-                                                          kernel_size   = 3,
-                                                          padding       = 1,
-                                                          ),
-                                                self.vae_output_activation
-                                                ).to(self.device)
+            # Build Decoder
+            self.decoder                        = create_hidden_layer(
+                                                    layer_type          = self.layer_type,
+                                                    input_units         = self.latent_units,
+                                                    output_units        = self.hidden_units,
+                                                    output_activation   = self.vae_output_activation,
+                                                    output_dropout      = self.hidden_dropout,
+                                                    device              = self.device,
+                                                    ).to(self.device)
+            # hidden_dims = self.hidden_dims.copy()
+            # hidden_dims.reverse()
+            # decoder                             = [create_hidden_layer(
+            #                                         layer_type          = self.layer_type,
+            #                                         input_units         = self.latent_units,
+            #                                         output_units        = hidden_dims[0],
+            #                                         output_activation   = self.vae_output_activation,
+            #                                         output_dropout      = self.hidden_dropout,
+            #                                         device              = self.device,
+            #                                         ).to(self.device)]
+            # for input_units,output_units in zip(hidden_dims[:-1],hidden_dims[1:]):
+            #     decoder.append(create_hidden_layer(
+            #                                         layer_type          = self.layer_type,
+            #                                         input_units         = input_units,
+            #                                         output_units        = output_units,
+            #                                         output_activation   = self.vae_output_activation,
+            #                                         output_dropout      = self.hidden_dropout,
+            #                                         device              = self.device,
+            #                                         ).to(self.device))
+            # self.decoder                        = nn.Sequential(*decoder).to(self.device)
+            
+        # if self.multi_hidden_layer:
+        #     hidden_dims = self.hidden_dims.copy()
+        #     hidden_dims.reverse()
+        # modules = [nn.Sequential(
+        #                     nn.ConvTranspose2d(self.latent_units,
+        #                                        hidden_dims[0],
+        #                                        kernel_size      = 3,
+        #                                        stride           = 2,
+        #                                        padding          = 1,
+        #                                        output_padding   = 1,
+        #                                        ),
+        #                     nn.BatchNorm2d(hidden_dims[0]),
+        #                     nn.LeakyReLU())
+        #     ]
+        # for ii in range(len(hidden_dims) - 1):
+        #     modules.append(
+        #             nn.Sequential(
+        #                     nn.ConvTranspose2d(hidden_dims[ii],
+        #                                        hidden_dims[ii + 1],
+        #                                        kernel_size      = 3,
+        #                                        stride           = 2,
+        #                                        padding          = 1,
+        #                                        output_padding   = 1,
+        #                                        ),
+        #                     nn.BatchNorm2d(hidden_dims[ii + 1]),
+        #                     nn.LeakyReLU()
+        #                         )
+        #                 )
+        # self.decoder                        = nn.Sequential(*modules).to(self.device)
+        # self.final_layer                    = nn.Sequential(
+        #                                         nn.ConvTranspose2d(hidden_dims[-1],
+        #                                                            hidden_dims[-1],
+        #                                                            kernel_size      = 3,
+        #                                                            stride           = 2,
+        #                                                            padding          = 1,
+        #                                                            output_padding   = 1,
+        #                                                            ),
+        #                                         nn.BatchNorm2d(hidden_dims[-1]),
+        #                                         nn.LeakyReLU(),
+        #                                         nn.Conv2d(hidden_dims[-1],
+        #                                                   out_channels  = 3,
+        #                                                   kernel_size   = 3,
+        #                                                   padding       = 1,
+        #                                                   ),
+        #                                         self.vae_output_activation
+        #                                         ).to(self.device)
         
     def reparameterize(self,mu:Tensor,log_var:Tensor) -> Tensor:
         """
@@ -868,13 +905,14 @@ class vae_classifier(BaseVAE):
         return z
     
     def forward(self,x:Tensor,) -> List[Tensor]:
-        extracted_features      = self.feature_extractor(x)
+        extracted_features      = self.encoder(x)
         hidden_representation   = self.hidden_layer(extracted_features)
         image_category          = self.output_layer(hidden_representation)
         mu                      = self.mu_layer(hidden_representation)
         log_var                 = self.log_var_layer(hidden_representation)
         z                       = self.reparameterize(mu, log_var)
-        z                       = z.view(z.shape[0],z.shape[1],1,1)
-        conv_transpose          = self.decoder(z)
-        reconstruction          = self.normalize(self.final_layer(conv_transpose))
+        # z                       = z.view(z.shape[0],z.shape[1],1,1)
+        # conv_transpose          = self.decoder(z)
+        # reconstruction          = self.normalize(self.final_layer(conv_transpose))
+        reconstruction          = self.decoder(z)
         return reconstruction,extracted_features,z,mu,log_var,hidden_representation,image_category

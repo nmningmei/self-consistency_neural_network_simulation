@@ -1047,13 +1047,8 @@ def clf_vae_train_loop(net:nn.Module,
                                         )
         ## reconstruction loss
         recon_loss      = compute_reconstruction_loss(
-                                                    batch_features.to(device),
-                                                    reconstruction.to(device),
-                                                    recon_loss_func,
-                                                    )
-        recon_loss += compute_reconstruction_loss(
-                                                    z.view(z.shape[0],z.shape[1]).to(device),
                                                     hidden_representation.to(device),
+                                                    reconstruction.to(device),
                                                     recon_loss_func,
                                                     )
         ## KLD loss
@@ -1110,15 +1105,10 @@ def clf_vae_valid_loop(net:nn.Module,
             image_losses += image_loss
             ## reconstruction loss
             recon_loss      = compute_reconstruction_loss(
-                                                        batch_features.to(device),
-                                                        reconstruction.to(device),
-                                                        recon_loss_func,
-                                                        )
-            recon_loss += compute_reconstruction_loss(
-                                                    z.view(z.shape[0],z.shape[1]).to(device),
                                                     hidden_representation.to(device),
+                                                    reconstruction.to(device),
                                                     recon_loss_func,
-                                                    )
+                                                        )
             recon_losses += recon_loss
             ## KLD loss
             kld_loss        = compute_kl_divergence(mu, log_var)

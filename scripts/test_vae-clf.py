@@ -58,32 +58,20 @@ if __name__ == "__main__":
                                int(hidden_units/2),
                                int(hidden_units/4),
                                int(hidden_units/8),
-                               # int(hidden_units/16),
-                               ]# as long as we have 5 layers
+                               int(hidden_units/16),
+                               ]
     vae_out_func_name       = 'sigmoid' # activation function of the reconstruction
     vae_output_activation   = hidden_activation_functions(vae_out_func_name)
     retrain_encoder         = True # retrain the CNN backbone convolutional layers
-    multi_hidden_layer      = False # add more dense layer to the classifier and the VAE encoder
+    multi_hidden_layer      = True # add more dense layer to the classifier and the VAE encoder
     if multi_hidden_layer:
         f_name              = f_name.replace('.h5','_deep.h5')
-    # train settings
-    learning_rate           = 1e-4 # initial learning rate, will be reduced by 10 after warmup epochs
-    l2_regularization       = 1e-32 # L2 regularization term, used as weight decay
-    print_train             = True # print the progresses
-    n_epochs                = int(1e3) # max number of epochs
-    warmup_epochs           = 5 # we don't save the models in these epochs
-    patience                = 50 # we wait for a number of epochs after the best performance
-    tol                     = 1e-4 # the difference between the current best and the next best
-    n_noise                 = 0 # number of noisy images used in training the classifier
-    retrain                 = True # retrain the VAE
-    
-    latent_units            = hidden_dims[-1] if multi_hidden_layer else hidden_units
+    latent_units            = hidden_dims[-1] if multi_hidden_layer else 128
     # testing settings
-    n_noise_levels  = 20
-    max_noise_level = np.log10(100)
-    noise_levels    = np.concatenate([[0],np.logspace(-1,max_noise_level,n_noise_levels)])
+    n_noise_levels          = 30
+    max_noise_level         = np.log10(1000)
+    noise_levels            = np.concatenate([[0],np.logspace(-1,max_noise_level,n_noise_levels)])
     
-    latent_units            = hidden_dims[-1] if multi_hidden_layer else hidden_units
     model_args          = dict(pretrained_model_name    = pretrained_model_name,
                                hidden_units             = hidden_units,
                                hidden_activation        = hidden_activation,
@@ -99,22 +87,6 @@ if __name__ == "__main__":
                                multi_hidden_layer       = multi_hidden_layer,
                                clf_output_activation    = nn.Softmax(dim = -1),
                                )
-    
-    train_args              = dict(device          = device,
-                                   n_epochs        = n_epochs,
-                                   print_train     = print_train,
-                                   warmup_epochs   = warmup_epochs,
-                                   tol             = tol,
-                                   # patience        = patience,
-                                   )
-    optim_args              = dict(learning_rate        = learning_rate,
-                                   l2_regularization    = l2_regularization,
-                                   mode                 = 'min',
-                                   factor               = .5,
-                                   patience             = int(patience/2),
-                                   threshold            = tol,
-                                   min_lr               = 1e-8,
-                                   )
     
     # build the variational autoencoder
     print('Build CLF-VAE model')
@@ -164,10 +136,10 @@ if __name__ == "__main__":
                 y_pred.append(image_category.max(1)[1])
                 y_prob.append(image_category.max(1)[0])
                 hidden_representations.append(hidden_representation)
-                sampled_representations.append(z.view(z.shape[0],-1))
-                distances.append(np.diag(distance.cdist(hidden_representations[-1].detach().cpu().numpy(),
-                                                        sampled_representations[-1].detach().cpu().numpy(),
-                                                        metric='minkowski',p = 2)))
+                sampled_representations.append(reconstruction)
+                distances.append(np.diag(distance.cdist(hidden_representation.detach().cpu().numpy(),
+                                                        reconstruction.detach().cpu().numpy(),
+                                                        metric = 'minkowski',)))
             y_true = torch.cat(y_true).detach().cpu().numpy()
             y_pred = torch.cat(y_pred).detach().cpu().numpy()
             y_prob = torch.cat(y_prob).detach().cpu().numpy()
