@@ -6,21 +6,18 @@ Created on Thu Apr 14 13:00:57 2022
 @author: nmei
 """
 import os,torch
-from torch import nn,optim
+from torch import nn
 from typing import Tuple
 import numpy as np
 import pandas as pd
 import seaborn as sns
-from scipy.spatial import distance
 from sklearn.metrics import roc_auc_score
 
-from utils_deep import (hidden_activation_functions,
-                        dataloader,
-                        simple_augmentations,
-                        vae_train_valid,
-                        clf_train_valid
+from utils_deep import (dataloader,
+                        simple_augmentations
                         )
 from models import (vae_classifier)
+import experiment_settings
 
 from matplotlib import pyplot as plt
 
@@ -63,25 +60,6 @@ def set_ax(ax,
            **xargs)
     return None
 if __name__ == "__main__":
-    dataset_name            = None
-    experiment_name         = 'clf+vae'
-    train_root              = '../data/greyscaled'
-    valid_root              = '../data/experiment_images_greyscaled'
-    test_root               = '../data/metasema_images'
-    model_dir               = os.path.join('../models',experiment_name)
-    figure_dir              = os.path.join('../figures',experiment_name)
-    f_name                  = os.path.join(model_dir,'clf-vae.h5')
-    if not os.path.exists(model_dir):
-        os.mkdir(model_dir)
-    if not os.path.exists(figure_dir):
-        os.mkdir(figure_dir)
-    # image setting
-    batch_size              = 16 # batch size for each epoch
-    image_resize            = 128 # image hight
-    noise_level_train       = 1e-3 # noise level in training
-    noise_level_test        = 0. # noise level in testing
-    rotation                = True # image augmentation
-    gitter_color            = False # image augmentation for Gabor patches
     # set up random seeds and GPU/CPU
     torch.manual_seed(12345)
     np.random.seed(12345)
@@ -89,74 +67,45 @@ if __name__ == "__main__":
     torch.cuda.manual_seed(12345)
     torch.cuda.manual_seed_all(12345)
     device                  = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    # model settings
-    # model settings
-    pretrained_model_name   = 'vgg19'
-    hidden_units            = 256 # hidden layer units
-    hidden_func_name        = 'relu' # hidden layer activation function
-    hidden_activation       = hidden_activation_functions(hidden_func_name)
-    latent_func_names       = ['tanh','tanh'] # mu and log_var layer activation function
-    latent_activations      = [hidden_activation_functions(item) for item in latent_func_names]
-    hidden_dropout          = 0. # hidden layer dropout rate
-    hidden_dims             = [hidden_units,
-                               int(hidden_units/2),
-                               int(hidden_units/4),
-                               int(hidden_units/8),
-                               int(hidden_units/16),
-                               ]
-    output_units            = 2
-    vae_out_func_name       = hidden_func_name#'relu' # activation function of the reconstruction
-    vae_output_activation   = hidden_activation_functions(vae_out_func_name)
-    retrain_encoder         = False # retrain the CNN backbone convolutional layers
-    multi_hidden_layer      = True # add more dense layer to the classifier and the VAE encoder
-    if multi_hidden_layer:
-        f_name              = f_name.replace('.h5','_deep.h5')
-    latent_units            = hidden_dims[-1] if multi_hidden_layer else int(hidden_units/2)
-    # train settings
-    learning_rate           = 1e-4 # initial learning rate, will be reduced by 10 after warmup epochs
-    l2_regularization       = 1e-4 # L2 regularization term, used as weight decay
-    print_train             = True # print the progresses
-    n_epochs                = int(1e3) # max number of epochs
-    warmup_epochs           = 10 # we don't save the models in these epochs
-    patience                = 20 # we wait for a number of epochs after the best performance
-    tol                     = 1e-4 # the difference between the current best and the next best
-    n_noise                 = int(batch_size/8) # number of noisy images used in training the classifier
-    retrain                 = True # retrain the VAE
-    # testing settings
-    n_noise_levels          = 50
-    max_noise_level         = np.log10(1000)
-    noise_levels            = np.concatenate([[0],np.logspace(-2,max_noise_level,n_noise_levels)])
+    if not os.path.exists(experiment_settings.model_dir):
+        os.mkdir(experiment_settings.model_dir)
+    if not os.path.exists(experiment_settings.figure_dir):
+        os.mkdir(experiment_settings.figure_dir)
     
-    model_args          = dict(pretrained_model_name    = pretrained_model_name,
-                               hidden_units             = hidden_units,
-                               hidden_activation        = hidden_activation,
-                               hidden_dropout           = hidden_dropout,
-                               hidden_dims              = hidden_dims,
-                               output_units             = output_units,
-                               latent_units             = latent_units,
-                               vae_output_activation    = vae_output_activation,
-                               latent_activations       = latent_activations,
-                               retrain_encoder          = retrain_encoder,
+    model_args          = dict(pretrained_model_name    = experiment_settings.pretrained_model_name,
+                               hidden_units             = experiment_settings.hidden_units,
+                               hidden_activation        = experiment_settings.hidden_activation,
+                               hidden_dropout           = experiment_settings.hidden_dropout,
+                               hidden_dims              = experiment_settings.hidden_dims,
+                               output_units             = experiment_settings.output_units,
+                               latent_units             = experiment_settings.latent_units,
+                               vae_output_activation    = experiment_settings.vae_output_activation,
+                               latent_activations       = experiment_settings.latent_activations,
+                               retrain_encoder          = experiment_settings.retrain_encoder,
                                in_channels              = 3,
-                               in_shape                 = [1,3,image_resize,image_resize],
+                               in_shape                 = [1,# dummy value
+                                                           3,# n_channels
+                                                           experiment_settings.image_resize,
+                                                           experiment_settings.image_resize],
                                device                   = device,
-                               multi_hidden_layer       = multi_hidden_layer,
+                               multi_hidden_layer       = experiment_settings.multi_hidden_layer,
                                clf_output_activation    = nn.Softmax(dim = -1),
                                )
     
-    train_args              = dict(device          = device,
-                                   n_epochs        = n_epochs,
-                                   print_train     = print_train,
-                                   warmup_epochs   = warmup_epochs,
-                                   tol             = tol,
+    train_args              = dict(device           = device,
+                                   n_epochs         = experiment_settings.n_epochs,
+                                   print_train      = experiment_settings.print_train,
+                                   warmup_epochs    = experiment_settings.warmup_epochs,
+                                   tol              = experiment_settings.tol,
+                                   image_resize     = experiment_settings.image_resize
                                    # patience        = patience,
                                    )
-    optim_args              = dict(learning_rate        = learning_rate,
-                                   l2_regularization    = l2_regularization,
+    optim_args              = dict(learning_rate        = experiment_settings.learning_rate,
+                                   l2_regularization    = experiment_settings.l2_regularization,
                                    mode                 = 'min',
                                    factor               = .5,# factor of reducing the learning rate for the scheduler
                                    patience             = 10,
-                                   threshold            = tol,
+                                   threshold            = experiment_settings.tol,
                                    min_lr               = 1e-8,
                                    )
     kde_args                = dict(cut = 0,
@@ -165,7 +114,7 @@ if __name__ == "__main__":
     # build the variational autoencoder
     print('Build CLF-VAE model')
     vae             = vae_classifier(**model_args).to(device)
-    vae.load_state_dict(torch.load(f_name,map_location = device))
+    vae.load_state_dict(torch.load(experiment_settings.f_name,map_location = device))
     # freeze the vae
     for p in vae.parameters(): p.requires_gard = False
     
@@ -182,21 +131,21 @@ if __name__ == "__main__":
         hidden_representations = []
         sampled_representations = []
         distances = []
-        for ii,noise_level in enumerate(noise_levels):
+        for ii,noise_level in enumerate(experiment_settings.noise_levels):
             print(f'noise level = {noise_level:.5f}')
             # make transforms
             transform                           = simple_augmentations(
-                                                        image_resize    = image_resize,
+                                                        image_resize    = experiment_settings.image_resize,
                                                         noise_level     = noise_level,
-                                                        rotation        = rotation,
-                                                        gitter_color    = gitter_color,
+                                                        rotation        = experiment_settings.rotation,
+                                                        gitter_color    = experiment_settings.gitter_color,
                                                         )
             dataloader_test,_                   = dataloader(
-                                                dataset_name    = dataset_name,
-                                                root            = test_root,
+                                                dataset_name    = experiment_settings.dataset_name,
+                                                root            = experiment_settings.test_root,
                                                 train           = False,
                                                 transform       = transform,
-                                                batch_size      = batch_size,
+                                                batch_size      = experiment_settings.batch_size,
                                                 shuffle         = True,
                                                 )
             y_true,y_pred,y_prob = [],[],[]
@@ -213,9 +162,11 @@ if __name__ == "__main__":
                 y_prob.append(image_category[:,-1])
                 hidden_representations.append(hidden_representation)
                 sampled_representations.append(reconstruction)
-                distances.append(np.diag(distance.cdist(hidden_representation.detach().cpu().numpy(),
-                                                        reconstruction.detach().cpu().numpy(),
-                                                        metric = 'cosine',)))
+                # distances.append(np.diag(distance.cdist(hidden_representation.detach().cpu().numpy(),
+                #                                         reconstruction.detach().cpu().numpy(),
+                #                                         metric = 'cosine',)))
+                distances.append(1-nn.CosineSimilarity(dim=1,)(hidden_representation,
+                                                             reconstruction))
             y_true = torch.cat(y_true).detach().cpu().numpy()
             y_pred = torch.cat(y_pred).detach().cpu().numpy()
             y_prob = torch.cat(y_prob).detach().cpu().numpy()
@@ -233,7 +184,8 @@ if __name__ == "__main__":
                 df_res['y_prob'].append(_y_prob)
     hidden_representations = torch.cat(hidden_representations).detach().cpu().numpy()
     sampled_representations = torch.cat(sampled_representations).detach().cpu().numpy()
-    distances = np.concatenate(distances)
+    # distances = np.concatenate(distances)
+    distances = torch.cat(distances).detach().cpu().numpy()
     results = pd.DataFrame(results)
     df_res = pd.DataFrame(df_res)
     df_res['acc'] = df_res['y_true'] == df_res['y_pred']
@@ -242,7 +194,7 @@ if __name__ == "__main__":
     ax.plot(results['noise_level'],results['accuracy'])
     ax.set_xscale('log')
     ax.set(xlabel = 'Noise level',ylabel = 'ROC AUC')
-    fig.savefig(os.path.join(figure_dir,'performance.jpg'),
+    fig.savefig(os.path.join(experiment_settings.figure_dir,'performance.jpg'),
                 dpi = 100,
                 bbox_inches = 'tight',)
     
@@ -252,7 +204,7 @@ if __name__ == "__main__":
                             sharey = True,
                             sharex = False,
                             )
-    colors = plt.cm.coolwarm(np.linspace(0,1,(n_noise_levels+1) * 2))
+    colors = plt.cm.coolwarm(np.linspace(0,1,(experiment_settings.n_noise_levels+1) * 2))
     for ((noise_level,matched),df_sub),color in zip(df_res.groupby(['noise_level','acc']),
                                                     colors):
         if matched:
@@ -273,7 +225,7 @@ if __name__ == "__main__":
     set_ax(axes[1][1],xlim = (-.5,2.5))
     handles, labels = axes[0][0].get_legend_handles_labels()
     fig.legend(handles, labels, loc='center right',title = 'Noise levels')
-    fig.savefig(os.path.join(figure_dir,'preliminary.jpg'),
+    fig.savefig(os.path.join(experiment_settings.figure_dir,'preliminary.jpg'),
                 dpi = 300,
                 bbox_inches = 'tight')
     
@@ -285,7 +237,7 @@ if __name__ == "__main__":
                                 sharey = True,
                                 sharex = False,
                                 )
-        colors = plt.cm.coolwarm(np.linspace(0,1,(n_noise_levels+1) * 2))
+        colors = plt.cm.coolwarm(np.linspace(0,1,(experiment_settings.n_noise_levels+1) * 2))
         for ((noise_level,matched),df_sub),color in zip(df_k.groupby(['noise_level','acc']),
                                                         colors):
             if matched:
@@ -306,7 +258,7 @@ if __name__ == "__main__":
         handles, labels = axes[0][0].get_legend_handles_labels()
         fig.legend(handles, labels, loc='center right',title = 'Noise levels')
         fig.suptitle(title)
-        fig.savefig(os.path.join(figure_dir,f'preliminary {title}.jpg'),
+        fig.savefig(os.path.join(experiment_settings.figure_dir,f'preliminary {title}.jpg'),
                     dpi = 300,
                     bbox_inches = 'tight')
     
