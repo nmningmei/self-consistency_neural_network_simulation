@@ -11,6 +11,7 @@ from typing import Tuple
 import numpy as np
 import pandas as pd
 import seaborn as sns
+from scipy.spatial import distance
 from sklearn.metrics import roc_auc_score
 
 from utils_deep import (dataloader,
@@ -59,6 +60,17 @@ def set_ax(ax,
            xlim = xlim,ylim = ylim,
            **xargs)
     return None
+
+def add_columns(df):
+    df['CNN'] = experiment_settings.pretrained_model_name
+    df['hidden_units'] = experiment_settings.hidden_units
+    df['hidden_func_name'] = experiment_settings.hidden_func_name
+    df['latent_func_name'] = experiment_settings.latent_func_names[0]
+    df['hidden_dropout'] = experiment_settings.hidden_dropout
+    df['retrain_encoder'] = experiment_settings.retrain_encoder
+    df['deep_dense_layers'] = experiment_settings.multi_hidden_layer
+    return df
+
 if __name__ == "__main__":
     # set up random seeds and GPU/CPU
     torch.manual_seed(12345)
@@ -67,10 +79,11 @@ if __name__ == "__main__":
     torch.cuda.manual_seed(12345)
     torch.cuda.manual_seed_all(12345)
     device                  = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    if not os.path.exists(experiment_settings.model_dir):
-        os.mkdir(experiment_settings.model_dir)
-    if not os.path.exists(experiment_settings.figure_dir):
-        os.mkdir(experiment_settings.figure_dir)
+    for d in [experiment_settings.model_dir,
+              experiment_settings.figure_dir,
+              experiment_settings.results_dir]:
+        if not os.path.exists(d):
+            os.mkdir(d)
     
     model_args          = dict(pretrained_model_name    = experiment_settings.pretrained_model_name,
                                hidden_units             = experiment_settings.hidden_units,
@@ -112,7 +125,7 @@ if __name__ == "__main__":
                                    )
     
     # build the variational autoencoder
-    print('Build CLF-VAE model')
+    print(f'Build CLF-VAE model on CNN backbone {experiment_settings.pretrained_model_name}')
     vae             = vae_classifier(**model_args).to(device)
     vae.load_state_dict(torch.load(experiment_settings.f_name,map_location = device))
     # freeze the vae
@@ -162,11 +175,13 @@ if __name__ == "__main__":
                 y_prob.append(image_category[:,-1])
                 hidden_representations.append(hidden_representation)
                 sampled_representations.append(reconstruction)
-                # distances.append(np.diag(distance.cdist(hidden_representation.detach().cpu().numpy(),
-                #                                         reconstruction.detach().cpu().numpy(),
-                #                                         metric = 'cosine',)))
+                # a = hidden_representation.detach().cpu().numpy()
+                # a = a - a.mean(1).reshape(-1,1)
+                # b = reconstruction.detach().cpu().numpy()
+                # b = b - b.mean(1).reshape(-1,1)
+                # distances.append(np.diag(distance.cdist(a,b,metric = 'cosine',)))
                 distances.append(1-nn.CosineSimilarity(dim=1,)(hidden_representation,
-                                                             reconstruction))
+                                                              reconstruction))
             y_true = torch.cat(y_true).detach().cpu().numpy()
             y_pred = torch.cat(y_pred).detach().cpu().numpy()
             y_prob = torch.cat(y_prob).detach().cpu().numpy()
@@ -186,8 +201,16 @@ if __name__ == "__main__":
     sampled_representations = torch.cat(sampled_representations).detach().cpu().numpy()
     # distances = np.concatenate(distances)
     distances = torch.cat(distances).detach().cpu().numpy()
+    distances = np.log(distances)
+    # dict -> dataframe
     results = pd.DataFrame(results)
     df_res = pd.DataFrame(df_res)
+    results = add_columns(results)
+    df_res = add_columns(df_res)
+    # save
+    results.to_csv(os.path.join(experiment_settings.results_dir,'performance.csv'),index = False)
+    df_res.to_csv(os.path.join(experiment_settings.results_dir,'outputs.csv'),index = False)
+    
     df_res['acc'] = df_res['y_true'] == df_res['y_pred']
     
     fig,ax = plt.subplots()
@@ -201,7 +224,7 @@ if __name__ == "__main__":
     fig,axes = plt.subplots(figsize = (16,16),
                             nrows = 2,
                             ncols = 2,
-                            sharey = True,
+                            sharey = False,
                             sharex = False,
                             )
     colors = plt.cm.coolwarm(np.linspace(0,1,(experiment_settings.n_noise_levels+1) * 2))
@@ -219,10 +242,10 @@ if __name__ == "__main__":
                                      **kde_args)
             axes[1][1] = sns.kdeplot(distances[df_sub.index],alpha = .5,ax = axes[1][1],color = color,
                                      **kde_args)
-    set_ax(axes[0][0],title = 'Predicted probability',xlim = (-.5,1.5))
-    set_ax(axes[1][0],xlim = (-.5,1.5))
-    set_ax(axes[0][1],title = 'confidence measure',xlim = (-.5,2.5))
-    set_ax(axes[1][1],xlim = (-.5,2.5))
+    set_ax(axes[0][0],title = 'Predicted probability',)#xlim = (-.5,1.5))
+    # set_ax(axes[1][0],xlim = (-.5,1.5))
+    set_ax(axes[0][1],title = 'confidence measure',)#xlim = (-3.5,1.))
+    # set_ax(axes[1][1],xlim = (-3.5,1.))
     handles, labels = axes[0][0].get_legend_handles_labels()
     fig.legend(handles, labels, loc='center right',title = 'Noise levels')
     fig.savefig(os.path.join(experiment_settings.figure_dir,'preliminary.jpg'),
@@ -234,7 +257,7 @@ if __name__ == "__main__":
         fig,axes = plt.subplots(figsize = (16,16),
                                 nrows = 2,
                                 ncols = 2,
-                                sharey = True,
+                                sharey = False,
                                 sharex = False,
                                 )
         colors = plt.cm.coolwarm(np.linspace(0,1,(experiment_settings.n_noise_levels+1) * 2))
@@ -251,10 +274,10 @@ if __name__ == "__main__":
                                          **kde_args)
                 axes[1][1] = sns.kdeplot(distances[df_sub.index],alpha = .5,ax = axes[1][1],color = color,
                                          **kde_args)
-        set_ax(axes[0][0],title = 'Predicted probability',xlim = (-.5,1.5))
-        set_ax(axes[0][1],title = 'confidence measure',xlim = (-.5,2.5))
-        set_ax(axes[1][0],xlim = (-.5,1.5))
-        set_ax(axes[1][1],xlim = (-.5,2.5))
+        set_ax(axes[0][0],title = 'Predicted probability',)#xlim = (-.5,1.5))
+        set_ax(axes[0][1],title = 'confidence measure',)#xlim = (-.5,2.5))
+        # set_ax(axes[1][0],xlim = (-.5,1.5))
+        # set_ax(axes[1][1],xlim = (-.5,2.5))
         handles, labels = axes[0][0].get_legend_handles_labels()
         fig.legend(handles, labels, loc='center right',title = 'Noise levels')
         fig.suptitle(title)

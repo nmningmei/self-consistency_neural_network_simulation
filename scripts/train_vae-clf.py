@@ -8,8 +8,7 @@ Created on Thu Apr 14 13:00:57 2022
 import os,torch
 from torch import nn
 import numpy as np
-from utils_deep import (hidden_activation_functions,
-                        dataloader,
+from utils_deep import (dataloader,
                         optimizer_and_scheduler,
                         simple_augmentations,
                         clf_vae_train_valid
@@ -25,10 +24,11 @@ if __name__ == "__main__":
     torch.cuda.manual_seed(12345)
     torch.cuda.manual_seed_all(12345)
     device                  = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    if not os.path.exists(experiment_settings.model_dir):
-        os.mkdir(experiment_settings.model_dir)
-    if not os.path.exists(experiment_settings.figure_dir):
-        os.mkdir(experiment_settings.figure_dir)
+    for d in [experiment_settings.model_dir,
+              experiment_settings.figure_dir,
+              experiment_settings.results_dir]:
+        if not os.path.exists(d):
+            os.mkdir(d)
     
     model_args          = dict(pretrained_model_name    = experiment_settings.pretrained_model_name,
                                hidden_units             = experiment_settings.hidden_units,
@@ -106,7 +106,7 @@ if __name__ == "__main__":
     
     ###########################################################################
     # build the variational autoencoder
-    print('Build CLF-VAE model')
+    print(f'Build CLF-VAE model on CNN backbone {experiment_settings.pretrained_model_name}')
     vae             = vae_classifier(**model_args).to(device)
     # CNN + hidden_layer + output_layer
     if experiment_settings.retrain_encoder:
@@ -120,7 +120,7 @@ if __name__ == "__main__":
     for p in vae.log_var_layer.parameters():params_vae.append(p)
     for p in vae.decoder.parameters():params_vae.append(p)
     paras_vae       = [p for p in params_vae if p.requires_grad == True]
-    recon_loss_func = nn.CosineEmbeddingLoss(margin = 1.)
+    recon_loss_func = nn.CosineEmbeddingLoss(margin = 2.,)
     image_loss_func = nn.BCELoss()
     (optimizer1,
      scheduler1)    = optimizer_and_scheduler(params = params_clf,**optim_args)

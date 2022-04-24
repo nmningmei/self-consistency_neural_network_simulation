@@ -46,7 +46,27 @@ def standard_dataset(generator:datasets,
                      unpack:dict,
                      ) -> Tuple:
     """
-    
+    A function for getting standard CV datasets from torchvision
+
+    Parameters
+    ----------
+    generator : datasets object
+        torchvision.datasets object being a generator.
+    train_valid_split : List
+        Containing two elements, the size of training and the size of the validation.
+    unpack : dict
+        DESCRIPTION.
+
+    Raises
+    ------
+    NotImplementedError
+        DESCRIPTION.
+
+    Returns
+    -------
+    dataloaders : Tuple
+        DESCRIPTION.
+
     """
     if train_valid_split is not None:
         torch.manual_seed(12345)
@@ -100,9 +120,9 @@ def dataloader(dataset_name:str                     = 'CIFAR10',
                    download         = download,
                    train            = train
                    )
-    unpack2 = dict(batch_size   = batch_size,
-                   num_workers  = num_workers,
-                   shuffle      = shuffle,
+    unpack2 = dict(batch_size       = batch_size,
+                   num_workers      = num_workers,
+                   shuffle          = shuffle,
                    )
     if dataset_name == 'CIFAR100': # subset of CIFAR10
         generator   = datasets.CIFAR10(**unpack1)
@@ -115,9 +135,9 @@ def dataloader(dataset_name:str                     = 'CIFAR10',
                                        train_valid_split,
                                        unpack2)
     elif dataset_name == None:
-        loader = data_loader(data_root = root,
-                             augmentations = transform,
-                             return_path = False,
+        loader = data_loader(data_root      = root,
+                             augmentations  = transform,
+                             return_path    = False,
                              **unpack2,)
         loaders = loader,None
     else:
@@ -130,7 +150,7 @@ class customizedDataset(ImageFolder):
     """
     def __getitem__(self, idx):
         original_tuple  = super(customizedDataset,self).__getitem__(idx)
-        path = self.imgs[idx][0]
+        path            = self.imgs[idx][0]
         tuple_with_path = (original_tuple +  (path,))
         return tuple_with_path
 
@@ -207,12 +227,12 @@ def optimizer_and_scheduler(params:List,
                             min_lr:float            = 1e-8,
                             ) -> Union:
     """
-    Generate optimizer and scheduler
+    Build optimizer and scheduler
 
     Parameters
     ----------
-    params : List
-        DESCRIPTION.
+    params : List of pytorch parameters
+        The parameters we will modify during training.
     learning_rate : float, optional
         DESCRIPTION. The default is 1e-4.
     l2_regularization : float, optional
@@ -220,11 +240,11 @@ def optimizer_and_scheduler(params:List,
     mode : str, optional
         DESCRIPTION. The default is 'min'.
     factor : float, optional
-        DESCRIPTION. The default is .5.
+        Learning rate decay factor. The default is .5.
     patience : int, optional
         DESCRIPTION. The default is 5.
     threshold : float, optional
-        DESCRIPTION. The default is 1e-4.
+        Tolerance of change during validation. The default is 1e-4.
     min_lr : float, optional
         DESCRIPTION. The default is 1e-8.
 
@@ -253,6 +273,19 @@ def optimizer_and_scheduler(params:List,
 def candidates(model_name:str,pretrained:bool = True,) -> nn.Module:
     """
     A simple loader for the CNN backbone models
+
+    Parameters
+    ----------
+    model_name : str
+        DESCRIPTION.
+    pretrained : bool, optional
+        DESCRIPTION. The default is True.
+
+    Returns
+    -------
+    nn.Module
+        A pretrained CNN model.
+
     """
     picked_models = dict(
             resnet18        = Tmodels.resnet18(pretrained           = pretrained,
@@ -273,6 +306,8 @@ def candidates(model_name:str,pretrained:bool = True,) -> nn.Module:
             #                                             progress    = False,),
             mobilenet       = Tmodels.mobilenet_v2(pretrained       = pretrained,
                                                   progress          = False,),
+            mobilenet_v3_l  = Tmodels.mobilenet_v3_large(pretrained = pretrained,
+                                                         progress   = False,),
             # resnext50_32x4d = Tmodels.resnext50_32x4d(pretrained    = pretrained,
             #                                          progress       = False,),
             resnet50        = Tmodels.resnet50(pretrained           = pretrained,
@@ -282,7 +317,7 @@ def candidates(model_name:str,pretrained:bool = True,) -> nn.Module:
 
 def define_type(model_name:str) -> str:
     """
-    
+    We define the type of the pretrained CNN models for easier transfer learning
 
     Parameters
     ----------
@@ -306,17 +341,22 @@ def define_type(model_name:str) -> str:
             )
     return model_type[model_name]
 
-def hidden_activation_functions(activation_func_name:str) -> nn.Module:
+def hidden_activation_functions(activation_func_name:str,num_parameters:int=3) -> nn.Module:
     """
     A simple loader for some of the nonlinear activation functions
     Parameters
+
+    Parameters
     ----------
     activation_func_name : str
+        DESCRIPTION.
+    num_parameters : int
+        I don't know how to use this yet.
 
     Returns
     -------
     nn.Module
-        an activation function
+        The activation function.
 
     """
     funcs = dict(relu       = nn.ReLU(),
@@ -333,7 +373,7 @@ def hidden_activation_functions(activation_func_name:str) -> nn.Module:
                  softshrink = nn.Softshrink(lambd = .1),
                  tanhshrink = nn.Tanhshrink(),
                  # weight decay should not be used when learning aa for good performance.
-                 prelu      = nn.PReLU(num_parameters=3,),
+                 prelu      = nn.PReLU(num_parameters=num_parameters,),
                  )
     return funcs[activation_func_name]
 
@@ -344,11 +384,11 @@ def noise_fuc(x:Tensor,noise_level:float = 1,scale:Tuple = (0,1)) -> Tensor:
     Parameters
     ----------
     x : Tensor
-        DESCRIPTION.
+        Input images.
     noise_level : float, optional
-        DESCRIPTION. The default is 1.
+        Standard deviation of the noise distribution. The default is 1.
     scale : Tuple, optional
-        DESCRIPTION. 
+        The range we scale the data to. 
 
     Returns
     -------
@@ -365,10 +405,10 @@ def noise_fuc(x:Tensor,noise_level:float = 1,scale:Tuple = (0,1)) -> Tensor:
         x = x * (scale[1] - scale[0]) + scale[0]
     return x
 
-def simple_augmentations(image_resize   = 128,
-                         noise_level    = None,
-                         rotation       = True,
-                         gitter_color   = False,
+def simple_augmentations(image_resize:int   = 128,
+                         noise_level        = None,
+                         rotation:bool      = True,
+                         gitter_color:bool  = False,
                          ):
     """
     Simple augmentation steps
@@ -376,7 +416,7 @@ def simple_augmentations(image_resize   = 128,
     Parameters 
     ---
     image_resize: int, the height and width of the images
-    noise_level: float, standard deviation of the Gaussian distribution the noise is sampled from
+    noise_level: float or None, standard deviation of the Gaussian distribution the noise is sampled from
     rotation: bool, one of the augmentation methods, for object recognition only
     gitter_color: bool, one of the augmentation methods, for Gabor only
     
@@ -421,7 +461,8 @@ def determine_training_stops(net,
                              f_name:str         = 'temp.h5',
                              ) -> Tuple[Tensor,int]:
     """
-    
+    A function in validation determining whether to stop training
+    It only works after the warmup 
 
     Parameters
     ----------
@@ -537,19 +578,43 @@ def compute_reconstruction_loss(hidden_representation:Tensor,
                                 n_noise:int = 0,
                                 device = 'cpu',
                                 ) -> Tensor:
+    """
+    
+
+    Parameters
+    ----------
+    hidden_representation : Tensor
+        DESCRIPTION.
+    reconstruct : Tensor
+        DESCRIPTION.
+    loss_func : nn.Module
+        DESCRIPTION.
+    n_noise : int, optional
+        DESCRIPTION. The default is 0.
+    device : TYPE, optional
+        DESCRIPTION. The default is 'cpu'.
+
+    Returns
+    -------
+    Loss : Tensor
+        DESCRIPTION.
+
+    """
     if "similar or dissimilar" in loss_func.__doc__:
         """
         So the reconstructed tensor should be similar to the hidden representation
         but disimilar from a random tensor
         """
+        a = hidden_representation - hidden_representation.mean(1).view(-1,1)
+        b = reconstruct - reconstruct.mean(1).view(-1,1)
         if n_noise > 0:
             # we label the last n_noise hidden representations as "-1" to tell
             # the loss function these are random embeddings,the reconstruction
             # should be disimilar to them
             y_ones = torch.ones(hidden_representation.shape[0])
             y_ones[-n_noise:] = -1
-            return loss_func(hidden_representation.to(device),
-                             reconstruct.to(device),y_ones.to(device))
+            return loss_func(a.to(device),
+                             b.to(device),y_ones.to(device))
         else:
             concat_recon = torch.cat([reconstruct.to(device),reconstruct.to(device)])
             dist_noise = torch.distributions.normal.Normal(hidden_representation.mean(),
@@ -569,16 +634,54 @@ def compute_reconstruction_loss(hidden_representation:Tensor,
 def clf_vae_train_loop(net:nn.Module,
                        dataloader:data.DataLoader,
                        optimizers:List,
-                       image_loss_func:nn.Module = nn.NLLLoss(),
-                       recon_loss_func:nn.Module = nn.MSELoss(),
-                       transform:transforms = None,
-                       image_resize:int = 128,
-                       n_noise:int = 0,
-                       device = 'cpu',
-                       idx_epoch:int = 0,
-                       print_train:bool = True,
-                       beta:float = 1.,
+                       image_loss_func:nn.Module    = nn.NLLLoss(),
+                       recon_loss_func:nn.Module    = nn.MSELoss(),
+                       transform:transforms         = None,
+                       image_resize:int             = 128,
+                       n_noise:int                  = 0,
+                       device                       = 'cpu',
+                       idx_epoch:int                = 0,
+                       print_train:bool             = True,
+                       beta:float                   = 1.,
                        ):
+    """
+    
+
+    Parameters
+    ----------
+    net : nn.Module
+        DESCRIPTION.
+    dataloader : data.DataLoader
+        DESCRIPTION.
+    optimizers : List
+        DESCRIPTION.
+    image_loss_func : nn.Module, optional
+        DESCRIPTION. The default is nn.NLLLoss().
+    recon_loss_func : nn.Module, optional
+        DESCRIPTION. The default is nn.MSELoss().
+    transform : transforms, optional
+        DESCRIPTION. The default is None.
+    image_resize : int, optional
+        DESCRIPTION. The default is 128.
+    n_noise : int, optional
+        DESCRIPTION. The default is 0.
+    device : TYPE, optional
+        DESCRIPTION. The default is 'cpu'.
+    idx_epoch : int, optional
+        DESCRIPTION. The default is 0.
+    print_train : bool, optional
+        DESCRIPTION. The default is True.
+    beta : float, optional
+        DESCRIPTION. The default is 1..
+
+    Returns
+    -------
+    net : TYPE
+        DESCRIPTION.
+    train_loss : TYPE
+        DESCRIPTION.
+
+    """
     optimizer1,optimizer2 = optimizers
     net.train(True)
     train_loss  = 0.
@@ -641,12 +744,41 @@ def clf_vae_train_loop(net:nn.Module,
 
 def clf_vae_valid_loop(net:nn.Module,
                        dataloader:data.DataLoader,
-                       image_loss_func:nn.Module = nn.NLLLoss(),
-                       recon_loss_func:nn.Module = nn.MSELoss(),
-                       device = 'cpu',
-                       idx_epoch:int = 0,
-                       print_train:bool = True,
-                       beta:float = 1.,):
+                       image_loss_func:nn.Module    = nn.NLLLoss(),
+                       recon_loss_func:nn.Module    = nn.MSELoss(),
+                       device                       = 'cpu',
+                       idx_epoch:int                = 0,
+                       print_train:bool             = True,
+                       beta:float                   = 1.,
+                       ):
+    """
+    
+
+    Parameters
+    ----------
+    net : nn.Module
+        DESCRIPTION.
+    dataloader : data.DataLoader
+        DESCRIPTION.
+    image_loss_func : nn.Module, optional
+        DESCRIPTION. The default is nn.NLLLoss().
+    recon_loss_func : nn.Module, optional
+        DESCRIPTION. The default is nn.MSELoss().
+    device : TYPE, optional
+        DESCRIPTION. The default is 'cpu'.
+    idx_epoch : int, optional
+        DESCRIPTION. The default is 0.
+    print_train : bool, optional
+        DESCRIPTION. The default is True.
+    beta : float, optional
+        DESCRIPTION. The default is 1..
+
+    Returns
+    -------
+    TYPE
+        DESCRIPTION.
+
+    """
     net.eval()
     valid_loss   = 0.
     image_losses = 0.
@@ -715,6 +847,56 @@ def clf_vae_train_valid(net:nn.Module,
                         n_noise:int                         = 0,
                         beta:float                          = 1.,
                         ):
+    """
+    
+
+    Parameters
+    ----------
+    net : nn.Module
+        DESCRIPTION.
+    dataloader_train : data.DataLoader
+        DESCRIPTION.
+    dataloader_valid : data.DataLoader
+        DESCRIPTION.
+    optimizers : List of optimizers
+        DESCRIPTION.
+    schedulers : List of schedulers
+        DESCRIPTION.
+    transform : transforms, optional
+        DESCRIPTION. The default is None.
+    image_loss_func : nn.Module, optional
+        DESCRIPTION. The default is nn.NLLLoss().
+    recon_loss_func : nn.Module, optional
+        DESCRIPTION. The default is nn.MSELoss().
+    image_resize : TYPE, optional
+        DESCRIPTION. The default is 128.
+    n_epochs : int, optional
+        DESCRIPTION. The default is int(1e3).
+    device : TYPE, optional
+        DESCRIPTION. The default is 'cpu'.
+    print_train : bool, optional
+        DESCRIPTION. The default is True.
+    warmup_epochs : int, optional
+        DESCRIPTION. The default is 10.
+    tol : float, optional
+        DESCRIPTION. The default is 1e-4.
+    f_name : str, optional
+        DESCRIPTION. The default is 'temp.h5'.
+    patience : int, optional
+        DESCRIPTION. The default is 10.
+    n_noise : int, optional
+        DESCRIPTION. The default is 0.
+    beta : float, optional
+        DESCRIPTION. The default is 1..
+
+    Returns
+    -------
+    net : nn.Module
+        Trained model
+    losses : List of Tensors
+        losses
+
+    """
     torch.random.manual_seed(12345)
     scheduler1,scheduler2   = schedulers
     best_valid_loss         = np.inf
