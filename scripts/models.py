@@ -893,11 +893,8 @@ class vae_classifier(BaseVAE):
         ---
         z:torch.tensor
         """
-        # std = torch.exp(0.5 * log_var)
-        # eps = torch.randn_like(std,requires_grad=True).to(self.device)
-        # # z = mu + std * eps
-        # z   = mu + std * eps
         
+        # z   = mu + std * eps
         vector_size = log_var.size()
         eps = torch.autograd.Variable(torch.FloatTensor(vector_size).normal_()).to(self.device)
         std = log_var.mul(0.5).exp_()
