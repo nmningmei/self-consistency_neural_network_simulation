@@ -120,7 +120,7 @@ if __name__ == "__main__":
     for p in vae.log_var_layer.parameters():params_vae.append(p)
     for p in vae.decoder.parameters():params_vae.append(p)
     paras_vae       = [p for p in params_vae if p.requires_grad == True]
-    recon_loss_func = nn.CosineEmbeddingLoss(margin = 2.,)
+    recon_loss_func = nn.CosineEmbeddingLoss(margin = 2.,reduction = 'sum')
     image_loss_func = nn.BCELoss()
     (optimizer1,
      scheduler1)    = optimizer_and_scheduler(params = params_clf,**optim_args)
@@ -141,7 +141,7 @@ if __name__ == "__main__":
                                 recon_loss_func = recon_loss_func,
                                 f_name          = experiment_settings.f_name,
                                 patience        = experiment_settings.patience,
-                                beta            = 1.,# since the reconstruction is not ideal, and all we want is the learned sampling distributions, we weight more on the variational loss
+                                beta            = 10.,# since the reconstruction is not ideal, and all we want is the learned sampling distributions, we weight more on the variational loss
                                 **train_args
                                 )
     else:

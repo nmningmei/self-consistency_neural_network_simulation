@@ -136,4 +136,4 @@ data/*tar.gz
 models/
 
 # large result files
-results/*/outputs.csv
+results/

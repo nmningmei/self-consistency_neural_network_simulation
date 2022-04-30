@@ -24,7 +24,7 @@ gitter_color            = False # image augmentation for Gabor patches
 
 # model settings
 pretrained_model_name   = 'vgg19'
-hidden_units            = 10 # hidden layer units
+hidden_units            = 1024 # hidden layer units
 hidden_func_name        = 'relu' # hidden layer activation function
 hidden_activation       = hidden_activation_functions(hidden_func_name)
 latent_func_names       = ['tanh','tanh'] # mu and log_var layer activation function
@@ -70,14 +70,15 @@ n_epochs                = int(1e3) # max number of epochs
 warmup_epochs           = 10 # we don't save the models in these epochs
 patience                = 20 # we wait for a number of epochs after the best performance
 tol                     = 1e-4 # the difference between the current best and the next best
-n_noise                 = int(batch_size/2) # number of noisy images used in training the classifier
+n_noise                 = int(batch_size/1) # number of noisy images used in training the classifier
 retrain                 = True # retrain the VAE
 # testing settings
 n_noise_levels          = 50
 min_noise_level         = np.log10(0.01)
 max_noise_level         = np.log10(1000)
 noise_levels            = np.concatenate([[0],np.logspace(min_noise_level,max_noise_level,n_noise_levels)])
+n_experiment_runs       = 1
 
 if __name__ == "__main__":
     os.system("python3 train_vae-clf.py")
-    os.system("python3 test_vae-clf.py")
+    os.system("python3 test_plot_vae-clf.py")
