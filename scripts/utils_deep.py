@@ -493,9 +493,9 @@ def determine_training_stops(net,
         used for determine when to stop training
     """
     if idx_epoch > warmup_epochs: # warming up
-        temp = valid_loss.cpu().clone().detach().type(torch.float64)
+        temp = valid_loss
         if np.logical_and(temp < best_valid_loss,np.abs(best_valid_loss - temp) >= tol):
-            best_valid_loss = valid_loss.cpu().clone().detach().type(torch.float64)
+            best_valid_loss = valid_loss
             torch.save(net.state_dict(),f_name)# why do i need state_dict()?
             counts = 0
         else:
@@ -707,12 +707,20 @@ def clf_vae_train_loop(net:nn.Module,
          extracted_features,
          z,mu,log_var,
          hidden_representation,
-         image_category)  = net(batch_features.to(device))
+         image_category,
+         image_category_recon)  = net(batch_features.to(device))
         # compute loss
         ## image classification loss
         image_loss      = compute_image_loss(
                                         image_loss_func = image_loss_func,
                                         image_category  = image_category.to(device),
+                                        labels          = batch_labels.to(device),
+                                        device          = device,
+                                        n_noise         = n_noise,
+                                        )
+        image_loss      += compute_image_loss(
+                                        image_loss_func = image_loss_func,
+                                        image_category  = image_category_recon.to(device),
                                         labels          = batch_labels.to(device),
                                         device          = device,
                                         n_noise         = n_noise,
@@ -735,7 +743,7 @@ def clf_vae_train_loop(net:nn.Module,
         optimizer1.step()
         optimizer2.step()
         # record the loss of a mini-batch
-        train_loss += loss_batch
+        train_loss += loss_batch.item()
         
         if print_train:
             iterator.set_description(f'epoch {idx_epoch+1:3.0f}-{ii + 1:4.0f}/{100*(ii+1)/len(dataloader):2.3f}%,train loss = {train_loss/(ii+1):2.6f}')
@@ -787,6 +795,7 @@ def clf_vae_valid_loop(net:nn.Module,
     iterator    = tqdm(enumerate(dataloader))
     y_true      = []
     y_pred      = []
+    y_reco      = []
     with torch.no_grad():
         for ii,(batch_features,batch_labels) in iterator:
             # forward pass
@@ -794,9 +803,11 @@ def clf_vae_valid_loop(net:nn.Module,
              extracted_features,
              z,mu,log_var,
              hidden_representation,
-             image_category)  = net(batch_features.to(device))
+             image_category,
+             image_category_recon)  = net(batch_features.to(device))
             y_true.append(batch_labels)
             y_pred.append(image_category)
+            y_reco.append(image_category_recon)
             # compute loss
             ## image classification loss
             image_loss      = compute_image_loss(
@@ -805,7 +816,13 @@ def clf_vae_valid_loop(net:nn.Module,
                                             labels          = batch_labels.to(device),
                                             device          = device,
                                             )
-            image_losses += image_loss
+            image_loss      += compute_image_loss(
+                                        image_loss_func = image_loss_func,
+                                        image_category  = image_category_recon.to(device),
+                                        labels          = batch_labels.to(device),
+                                        device          = device,
+                                        )
+            image_losses    += image_loss.item()
             ## reconstruction loss
             recon_loss      = compute_reconstruction_loss(
                                                         hidden_representation,
@@ -813,18 +830,19 @@ def clf_vae_valid_loop(net:nn.Module,
                                                         recon_loss_func,
                                                         device = device,
                                                         )
-            recon_losses += recon_loss
+            recon_losses    += recon_loss.item()
             ## KLD loss
             kld_loss        = compute_kl_divergence(mu, log_var)
-            kld_losses += beta * kld_loss
+            kld_losses      += beta * kld_loss.item()
             # losses
             loss_batch      = image_loss + recon_loss + beta * kld_loss
-            valid_loss += loss_batch
+            valid_loss      += loss_batch.item()
             if print_train:
                 iterator.set_description(f'epoch {idx_epoch+1:3.0f}-{ii + 1:4.0f}/{100*(ii+1)/len(dataloader):2.3f}%,valid loss = {valid_loss/(ii+1):2.6f}')
     return (valid_loss/len(dataloader),
             torch.cat(y_true),
             torch.cat(y_pred),
+            torch.cat(y_reco),
             image_losses/len(dataloader),
             recon_losses/len(dataloader),
             kld_losses/len(dataloader))
@@ -918,7 +936,7 @@ def clf_vae_train_valid(net:nn.Module,
                                 beta            = beta,
                                 )
         (valid_loss,
-         y_true,y_pred,
+         y_true,y_pred,y_reco,
          image_loss,recon_loss,kld_loss) = clf_vae_valid_loop(
                                 net             = net,
                                 dataloader      = dataloader_valid,
@@ -944,17 +962,22 @@ def clf_vae_train_valid(net:nn.Module,
                                                           )
         # calculate accuracy
         try:
-            accuracy = roc_auc_score(y_true.detach().cpu().numpy(),
-                                     y_pred.detach().cpu().numpy()
-                                     )
+            accuracy  = roc_auc_score(y_true.detach().cpu().numpy(),
+                                      y_pred.detach().cpu().numpy()
+                                      )
+            acc_recon = roc_auc_score(y_true.detach().cpu().numpy(),
+                                      y_reco.detach().cpu().numpy()
+                                      )
         except:
-            accuracy = torch.sum(y_true.to(device) == y_pred.max(1)[1].to(device)) / y_true.shape[0]
+            accuracy  = torch.sum(y_true.to(device) == y_pred.max(1)[1].to(device)) / y_true.shape[0]
+            acc_recon = torch.sum(y_true.to(device) == y_reco.max(1)[1].to(device)) / y_true.shape[0]
         print(f'''
 epoch {idx_epoch+1:3.0f} 
           validation accuracy = {accuracy:2.4f},
-          image loss          = {image_loss.detach().cpu().numpy():.4f},
-          reconstruction loss = {recon_loss.detach().cpu().numpy():.4f},
-          VAE loss            = {kld_loss.detach().cpu().numpy():.4f},
+          validation_accuracy = {acc_recon:2.4f},
+          image loss          = {image_loss:.4f},
+          reconstruction loss = {recon_loss:.4f},
+          VAE loss            = {kld_loss:.4f},
           counts              = {counts}''')
         if counts >= patience:#(len(losses) > patience) and (len(set(losses[-patience:])) == 1):
             break

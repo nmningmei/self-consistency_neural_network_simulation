@@ -168,11 +168,12 @@ if __name__ == "__main__":
                  extracted_features,
                  z,mu,log_var,
                  hidden_representation,
-                 image_category) = vae(batch_features.to(device))
+                 image_category,
+                 image_category_recon) = vae(batch_features.to(device))
                 batch_labels = torch.nn.functional.one_hot(batch_labels,num_classes = 2,)
                 y_true.append(batch_labels[:,-1])
-                y_pred.append(image_category.max(1)[1])
-                y_prob.append(image_category[:,-1])
+                y_pred.append(image_category_recon.max(1)[1])
+                y_prob.append(image_category_recon[:,-1])
                 hidden_representations.append(hidden_representation)
                 sampled_representations.append(reconstruction)
                 # a = hidden_representation.detach().cpu().numpy()

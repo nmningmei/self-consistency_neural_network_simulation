@@ -61,7 +61,7 @@ if __name__ == "__main__":
                                    l2_regularization    = experiment_settings.l2_regularization,
                                    mode                 = 'min',
                                    factor               = .5,# factor of reducing the learning rate for the scheduler
-                                   patience             = 10,
+                                   patience             = int(experiment_settings.patience / 5),
                                    threshold            = experiment_settings.tol,
                                    min_lr               = 1e-8,
                                    )
@@ -108,17 +108,20 @@ if __name__ == "__main__":
     # build the variational autoencoder
     print(f'Build CLF-VAE model on CNN backbone {experiment_settings.pretrained_model_name}')
     vae             = vae_classifier(**model_args).to(device)
-    # CNN + hidden_layer + output_layer
+    # CNN + hidden_layer + output_layer + decoder_output_layer
     if experiment_settings.retrain_encoder:
         params_clf  = [{'params':vae.encoder.parameters(),'lr':1e-8}]
     else:
         params_clf  = []
     params_clf.append({'params':vae.hidden_layer.parameters()})
     params_clf.append({'params':vae.output_layer.parameters()})
+    params_clf.append({'params':vae.vae_output_layer.parameters()})
+    
     # mu + log_var + decoder
     params_vae      = [p for p in vae.mu_layer.parameters()]
     for p in vae.log_var_layer.parameters():params_vae.append(p)
     for p in vae.decoder.parameters():params_vae.append(p)
+    
     paras_vae       = [p for p in params_vae if p.requires_grad == True]
     recon_loss_func = nn.CosineEmbeddingLoss(margin = 2.,reduction = 'sum')
     image_loss_func = nn.BCELoss()
@@ -141,7 +144,7 @@ if __name__ == "__main__":
                                 recon_loss_func = recon_loss_func,
                                 f_name          = experiment_settings.f_name,
                                 patience        = experiment_settings.patience,
-                                beta            = 10.,# since the reconstruction is not ideal, and all we want is the learned sampling distributions, we weight more on the variational loss
+                                beta            = experiment_settings.beta,
                                 **train_args
                                 )
     else:

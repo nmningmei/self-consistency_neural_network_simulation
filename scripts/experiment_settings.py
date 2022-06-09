@@ -15,7 +15,7 @@ valid_root              = '../data/Konklab'
 test_root               = '../data/metasema_images'
 
 # image setting
-batch_size              = 16 # batch size for each epoch
+batch_size              = 32 # batch size for each epoch
 image_resize            = 128 # image hight
 noise_level_train       = 1e-3 # noise level in training
 noise_level_test        = 0. # noise level in testing
@@ -23,7 +23,7 @@ rotation                = True # image augmentation
 gitter_color            = False # image augmentation for Gabor patches
 
 # model settings
-pretrained_model_name   = 'vgg19'
+pretrained_model_name   = 'resnet50'
 hidden_units            = 1024 # hidden layer units
 hidden_func_name        = 'relu' # hidden layer activation function
 hidden_activation       = hidden_activation_functions(hidden_func_name)
@@ -41,13 +41,16 @@ vae_out_func_name       = hidden_func_name # activation function of the reconstr
 vae_output_activation   = hidden_activation_functions(vae_out_func_name)
 retrain_encoder         = True # retrain the CNN backbone convolutional layers
 multi_hidden_layer      = False # add more dense layer to the classifier and the VAE encoder
+beta                    = 1
 # customize
-experiment_name         = 'clf+vae' + '_{}_{}_{}_{}_{}'.format(
+experiment_name         = 'clf+vae' + '_{}_{}_{}_{}_{}_{}'.format(
                                                 pretrained_model_name,
                                                 hidden_units,
                                                 hidden_func_name,
                                                 latent_func_names[0],
-                                                hidden_dropout,)
+                                                hidden_dropout,
+                                                beta,
+                                                )
 model_dir               = os.path.join('../models',experiment_name)
 figure_dir              = os.path.join('../figures',experiment_name)
 results_dir             = os.path.join('../results',experiment_name)
@@ -64,11 +67,11 @@ if multi_hidden_layer:
 latent_units            = hidden_dims[-1] if multi_hidden_layer else int(hidden_units/2)
 # train settings
 learning_rate           = 1e-4 # initial learning rate, will be reduced by 10 after warmup epochs
-l2_regularization       = 1e-4 # L2 regularization term, used as weight decay
+l2_regularization       = 1e-7 * hidden_units # L2 regularization term, used as weight decay
 print_train             = True # print the progresses
 n_epochs                = int(1e3) # max number of epochs
 warmup_epochs           = 10 # we don't save the models in these epochs
-patience                = 20 # we wait for a number of epochs after the best performance
+patience                = 50 # we wait for a number of epochs after the best performance
 tol                     = 1e-4 # the difference between the current best and the next best
 n_noise                 = int(batch_size/1) # number of noisy images used in training the classifier
 retrain                 = True # retrain the VAE
@@ -81,4 +84,5 @@ n_experiment_runs       = 1
 
 if __name__ == "__main__":
     os.system("python3 train_vae-clf.py")
-    os.system("python3 test_plot_vae-clf.py")
+    os.system('python3 test_vae-clf.py')
+    # os.system("python3 test_plot_vae-clf.py")
